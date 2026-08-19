@@ -112,26 +112,18 @@ fix a path that doesn't exist). Two free options actually reach it:
 The API calls go out from *your* network — the path that already works.
 
 ```bash
-# terminal 1 — run the app
-cd server && npm start
-
-# terminal 2 — expose it (free, random URL, no Cloudflare account needed)
-cloudflared tunnel --url http://localhost:3001
+npm install -g cloudflared        # one-time
+scripts/tunnel.sh                 # boots the server if needed, prints a public URL
 ```
 
-You get a `https://<random>.trycloudflare.com` URL. With your own Cloudflare
-account you can instead run a named tunnel (`cloudflared tunnel create …`) with
-a stable hostname. Downside: your machine must stay online, and the quick URL
-changes each restart (fine for a demo).
+You get a `https://<random>.trycloudflare.com` URL (free, no Cloudflare account
+needed). With your own Cloudflare account you can instead run a named tunnel
+(`cloudflared tunnel create …`) with a stable hostname. Downside: your machine
+must stay online, and the quick URL changes each restart (fine for a demo).
 
-**Option 2 — Oracle Cloud Always Free (Mumbai region).** A real cloud VM, free
-forever, in `ap-mumbai-1` (Mumbai) — close to the Sansys server. Signup needs a
-credit card for verification only (never charged). SSH in, install Node, clone
-this repo, `cd server && npm start`. A `Dockerfile` is included if you prefer
-containers.
-
-If the Sansys server owner can allowlist specific IPs, any free US/EU host
-(Render/Koyeb free tier) becomes viable instead.
+**Option 2 — Oracle Cloud Always Free (recommended for a real deploy).** A
+free-forever VM, ideally in Mumbai (`ap-mumbai-1`) next to the Sansys server.
+Full step-by-step guide: [`docs/deploy-oracle.md`](docs/deploy-oracle.md).
 
 ## Tests
 
