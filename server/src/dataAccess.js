@@ -23,6 +23,17 @@
 // level down (see sansys-api.md). A failed or malformed call throws; there is
 // no fallback data anymore.
 import { config } from './config.js';
+import { setGlobalDispatcher, Agent } from 'undici';
+
+// The Sansys test server is flaky: intermittent resets and connect timeouts.
+// undici's default 10s *connect* timeout kills slow-but-successful connections
+// (UND_ERR_CONNECT_TIMEOUT) long before our own request timeout fires. Raise it
+// to match the overall request timeout and allow enough sockets for the ten
+// parallel patient calls without queueing.
+setGlobalDispatcher(new Agent({
+  connect: { timeout: config.sansysTimeoutMs },
+  connections: 20,
+}));
 
 const DFN = 'PAT123456';
 const PATIENT_IEN = '1';
@@ -38,7 +49,9 @@ async function fetchWithTimeout(url, opts = {}, timeoutMs = config.sansysTimeout
     return await fetch(url, { ...opts, signal: controller.signal });
   } catch (err) {
     if (err && err.name === 'AbortError') {
-      throw new Error(`Sansys request timed out after ${timeoutMs}ms: ${url}`);
+      const e = new Error(`Sansys request timed out after ${timeoutMs}ms: ${url}`);
+      e.retryable = true;
+      throw e;
     }
     throw err;
   } finally {
@@ -47,30 +60,63 @@ async function fetchWithTimeout(url, opts = {}, timeoutMs = config.sansysTimeout
 }
 
 async function getJSON(url) {
-  const t0 = performance.now();
-  const res = await fetchWithTimeout(`${config.sansysBaseUrl}${url}`);
-  const ms = Math.round(performance.now() - t0);
-  if (!res.ok) {
-    console.error(`[sansys] GET ${url} -> HTTP ${res.status} (${ms}ms)`);
-    throw new Error(`Sansys GET ${url} failed: HTTP ${res.status}`);
-  }
-  console.log(`[sansys] GET ${url} -> 200 (${ms}ms)`);
-  return res.json();
+  return withRetry(() => requestSansys('GET', url));
 }
 
 async function postJSON(url, body) {
+  return withRetry(() => requestSansys('POST', url, body));
+}
+
+// Retry policy: the live Sansys test server is flaky from cloud hosts —
+// intermittent ECONNRESET resets, occasional connect timeouts, and slow
+// responses. A single transient failure among the ten parallel patient calls
+// must not kill the whole load, so every call retries before giving up.
+const RETRYABLE_CODES = new Set([
+  'ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EHOSTUNREACH',
+  'ENETUNREACH', 'ENETDOWN', 'EAI_AGAIN', 'UND_ERR_CONNECT_TIMEOUT',
+  'UND_ERR_SOCKET',
+]);
+
+function isRetryable(err) {
+  if (!err) return false;
+  if (err.name === 'AbortError') return true;
+  if (err.retryable) return true;
+  const code = err.cause?.code ?? err.code;
+  return !!code && RETRYABLE_CODES.has(code);
+}
+
+async function withRetry(fn, attempts = 3) {
+  let lastErr;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (!isRetryable(err)) throw err;
+      if (attempt < attempts) {
+        const delay = 200 * attempt + Math.floor(Math.random() * 150);
+        console.warn(`[sansys] attempt ${attempt}/${attempts - 1} failed (${err.cause?.code ?? err.code ?? err.message}); retrying in ${delay}ms`);
+        await new Promise((r) => setTimeout(r, delay));
+      }
+    }
+  }
+  throw lastErr;
+}
+
+async function requestSansys(method, url, body) {
   const t0 = performance.now();
-  const res = await fetchWithTimeout(`${config.sansysBaseUrl}${url}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+  const opts = body !== undefined
+    ? { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+    : { method };
+  const res = await fetchWithTimeout(`${config.sansysBaseUrl}${url}`, opts);
   const ms = Math.round(performance.now() - t0);
   if (!res.ok) {
-    console.error(`[sansys] POST ${url} -> HTTP ${res.status} (${ms}ms)`);
-    throw new Error(`Sansys POST ${url} failed: HTTP ${res.status}`);
+    console.error(`[sansys] ${method} ${url} -> HTTP ${res.status} (${ms}ms)`);
+    const err = new Error(`Sansys ${method} ${url} failed: HTTP ${res.status}`);
+    err.retryable = res.status >= 500;
+    throw err;
   }
-  console.log(`[sansys] POST ${url} -> 200 (${ms}ms)`);
+  console.log(`[sansys] ${method} ${url} -> 200 (${ms}ms)`);
   return res.json();
 }
 

@@ -46,6 +46,7 @@ registerProvider('test', {
 // readings once called with an admissionId — exercising the fetchVitals retry.
 const jsonRes = (body) => ({ ok: true, status: 200, json: async () => body });
 let vitalsCalls = 0;
+let problemsNetworkFails = 0;
 globalThis.fetch = async (input) => {
   const url = String(input);
   if (url.includes('/vitals/dash/load/')) {
@@ -55,6 +56,17 @@ globalThis.fetch = async (input) => {
         ? { success: true, data: { vitals: [], admissions: patientFixture.vitals.data.admissions } }
         : patientFixture.vitals,
     );
+  }
+  if (url.includes('/problems/dash-list')) {
+    // Simulate one transient network reset (ECONNRESET) — dataAccess must
+    // retry this call rather than fail the whole patient load.
+    if (problemsNetworkFails < 1) {
+      problemsNetworkFails += 1;
+      throw Object.assign(new Error('fetch failed'), {
+        cause: Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' }),
+      });
+    }
+    return jsonRes(patientFixture.problems);
   }
   if (url.includes('/patientHome/load-demographics/')) return jsonRes(patientFixture.demographics);
   if (url.includes('/clinical-notes/list')) return jsonRes(patientFixture.clinicalNotes);
@@ -87,6 +99,8 @@ test('GET /api/patients/:dfn returns the normalized patient from live-shaped res
   assert.deepEqual(times, [...times].sort());
   // the retry path ran: one empty + one populated vitals call
   assert.equal(vitalsCalls, 2);
+  // the injected ECONNRESET on problems was retried, not fatal
+  assert.equal(problemsNetworkFails, 1);
 });
 
 for (const spec of listSpecialties()) {
