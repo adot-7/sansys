@@ -1,0 +1,159 @@
+{
+  "key": "general",
+  "label": "General",
+  "fallback": true,
+  "sections": [
+    {
+      "id": "discharge-datetime",
+      "title": "Date and Time of Discharge",
+      "source": null,
+      "promptHint": "Doctor enters manually when starting the draft; DisDate in the system is empty until the hospital finalizes discharge.",
+      "requiredManual": false,
+      "manualEntry": true
+    },
+    {
+      "id": "diagnosis",
+      "title": "Diagnosis",
+      "source": "diagnoses",
+      "promptHint": "List the primary diagnosis first, then secondary diagnoses. Use the exact clinical wording from the data; do not add or reclassify diagnoses.",
+      "requiredManual": false,
+      "manualEntry": false
+    },
+    {
+      "id": "presenting-complaints",
+      "title": "Presenting Complaints",
+      "source": "complaints",
+      "promptHint": "Only complaints of type 'Chief Complaint', one per line, with dates. Do not include associated complaints here.",
+      "requiredManual": false,
+      "manualEntry": false
+    },
+    {
+      "id": "history-present-illness",
+      "title": "History of Present Illness",
+      "source": "complaints",
+      "promptHint": "Weave the associated complaints and their remarks into a short narrative around the chief complaints. There is no dedicated HPI field in the source data; this is a proxy and must be reviewed by the doctor. Do not invent detail beyond the given remarks.",
+      "requiredManual": false,
+      "manualEntry": false
+    },
+    {
+      "id": "past-medical-history",
+      "title": "Past Medical History",
+      "source": "problems",
+      "promptHint": "Treat every problem not obviously tied to the current admission diagnosis as past history (comorbidities especially). This heuristic is imperfect; flag for doctor review. Do not invent conditions.",
+      "requiredManual": false,
+      "manualEntry": false
+    },
+    {
+      "id": "current-medication",
+      "title": "Current Medication",
+      "source": "medications",
+      "promptHint": "Only orders with status ACTIVE. The source does not separate home medications from admission-started ones; treat as best effort and note the ambiguity rather than guessing.",
+      "requiredManual": false,
+      "manualEntry": false
+    },
+    {
+      "id": "personal-history",
+      "title": "Personal History",
+      "source": null,
+      "promptHint": "No source in the API. Leave blank for the doctor; never invent habits, addictions, or lifestyle detail.",
+      "requiredManual": false,
+      "manualEntry": true
+    },
+    {
+      "id": "family-history",
+      "title": "Family History",
+      "source": null,
+      "promptHint": "No source in the API. Leave blank for the doctor; never invent family illness detail.",
+      "requiredManual": false,
+      "manualEntry": true
+    },
+    {
+      "id": "allergies",
+      "title": "Allergies",
+      "source": "allergies",
+      "promptHint": "List each allergen with reaction nature and symptoms, or state the recorded status (e.g. NKA) if there are no items. Do not infer additional allergies.",
+      "requiredManual": false,
+      "manualEntry": false
+    },
+    {
+      "id": "occupational-history",
+      "title": "Occupational History",
+      "source": null,
+      "promptHint": "No source in the API. Leave blank for the doctor; never invent occupational detail.",
+      "requiredManual": false,
+      "manualEntry": true
+    },
+    {
+      "id": "on-examination",
+      "title": "On Examination",
+      "source": "vitals",
+      "promptHint": "Use the most recent vitals reading only. State explicitly that this covers recorded vitals, not a physical examination, and do not imply a fuller exam happened.",
+      "requiredManual": false,
+      "manualEntry": false
+    },
+    {
+      "id": "course-in-hospital",
+      "title": "Course in Hospital",
+      "source": "vitals",
+      "promptHint": "Synthesize lab orders, radiology orders, medication changes, and the vitals trend across the stay into a brief chronological course. Stick to what the data shows; this section needs the doctor's close review before approval.",
+      "requiredManual": false,
+      "manualEntry": false
+    },
+    {
+      "id": "condition-at-discharge",
+      "title": "Condition at Discharge",
+      "source": "vitals",
+      "promptHint": "Base on the most recent vitals plus the current status of active problems. Do not overstate improvement; report the recorded values.",
+      "requiredManual": false,
+      "manualEntry": false
+    },
+    {
+      "id": "procedure",
+      "title": "Procedure",
+      "source": null,
+      "promptHint": "No procedures or OT record endpoint exists. Leave blank for the doctor; the generator must not write this section.",
+      "requiredManual": false,
+      "manualEntry": true
+    },
+    {
+      "id": "medications-during-stay",
+      "title": "Medications During Stay",
+      "source": "medications",
+      "promptHint": "Include orders with a start_date inside the admission window, including completed and discontinued ones with their stop dates.",
+      "requiredManual": false,
+      "manualEntry": false
+    },
+    {
+      "id": "medications-on-discharge",
+      "title": "Medications on Discharge",
+      "source": "medications",
+      "promptHint": "Only orders with status ACTIVE at the time the draft is generated.",
+      "requiredManual": false,
+      "manualEntry": false
+    },
+    {
+      "id": "advice",
+      "title": "Advice",
+      "source": null,
+      "promptHint": "No structured source. The LLM may draft generic advice grounded only in the recorded diagnoses, but this must be flagged as needing doctor review and must not be treated as reliable.",
+      "requiredManual": false,
+      "manualEntry": false
+    },
+    {
+      "id": "special-needs",
+      "title": "Special Needs",
+      "source": null,
+      "promptHint": "No source in the API. Leave blank for the doctor; never invent care needs.",
+      "requiredManual": false,
+      "manualEntry": true
+    },
+    {
+      "id": "follow-up-advice",
+      "title": "Follow Up Advice",
+      "source": null,
+      "promptHint": "No structured source. LLM may draft generic follow-up advice grounded only in the diagnoses, flagged as needing doctor review before approval.",
+      "requiredManual": false,
+      "manualEntry": false
+    }
+  ]
+}
