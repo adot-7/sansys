@@ -101,35 +101,37 @@ patient object, specialty config schema, and the LLM provider interface. See
 `server/src/sansys-api.md` for the actual external Sansys test API shapes —
 that is the document to keep updated when the upstream API changes.
 
-## Deploy on Fly.io (free, Mumbai region)
+## Deploy for free (no pay-as-you-go)
 
-The Sansys test API is a local test server exposed over the internet. Free hosts
-in the US/EU (Render, Vercel, …) often can't reach it reliably, while a host in
-India mirrors the network path your own browser uses. Fly.io's free allowance
-runs this app in **Mumbai (`bom`)** with a persistent SQLite volume.
+The Sansys test API is a local test server exposed over the internet. Free
+cloud PaaS tiers (Render, Koyeb, Vercel) all run in the US/EU, and their
+network path to that server is flaky/blocked (the app's retries help but can't
+fix a path that doesn't exist). Two free options actually reach it:
 
-The repo already ships `fly.toml`, a `Dockerfile` and `.dockerignore`.
+**Option 1 — Cloudflare Tunnel from your machine (recommended, no account/card).**
+The API calls go out from *your* network — the path that already works.
 
 ```bash
-fly auth login
-fly launch --name sansys-discharge --no-deploy   # rename if taken; creates the app + data volume
-# set secrets (keys live only in Fly's encrypted store, never in code):
-fly secrets set LLM_PROVIDER=google
-fly secrets set GOOGLE_API_KEY=<your key>
-fly secrets set SANSYS_BASE_URL=http://182.70.249.137:3030
-fly deploy
+# terminal 1 — run the app
+cd server && npm start
+
+# terminal 2 — expose it (free, random URL, no Cloudflare account needed)
+cloudflared tunnel --url http://localhost:3001
 ```
 
-Then open the printed `https://sansys-discharge.fly.dev` URL. The volume
-(`/data/summaries.db`) persists approved summaries across redeploys.
+You get a `https://<random>.trycloudflare.com` URL. With your own Cloudflare
+account you can instead run a named tunnel (`cloudflared tunnel create …`) with
+a stable hostname. Downside: your machine must stay online, and the quick URL
+changes each restart (fine for a demo).
 
-Notes:
-- If `fly launch` didn't create the volume, run
-  `fly volumes create data --region bom --size 1` once, then `fly deploy`.
-- Check current free-tier limits at https://fly.io/docs/about/pricing/ — the
-  app fits the smallest shared-cpu plan; the machine may auto-stop when idle and
-  cold-start (~5s) on the next request.
-- `force_https = true` handles TLS; no external service needed.
+**Option 2 — Oracle Cloud Always Free (Mumbai region).** A real cloud VM, free
+forever, in `ap-mumbai-1` (Mumbai) — close to the Sansys server. Signup needs a
+credit card for verification only (never charged). SSH in, install Node, clone
+this repo, `cd server && npm start`. A `Dockerfile` is included if you prefer
+containers.
+
+If the Sansys server owner can allowlist specific IPs, any free US/EU host
+(Render/Koyeb free tier) becomes viable instead.
 
 ## Tests
 
