@@ -80,6 +80,14 @@ error and the UI shows it in the patient banner — nothing is fabricated.
 > that happens, deploy to a region near the test server, or ask the Sansys team
 > to whitelist the host's outbound IPs. Raising `SANSYS_TIMEOUT_MS` only helps
 > with slowness, not with a blocked connection.
+>
+> **Proving it from the deployed host:** hit `GET /api/diag/sansys` on your
+> deployed server. It probes demographics, vitals, and problems straight from
+> that host and reports status + latency, or on failure the OS-level cause:
+> `ETIMEDOUT`/`ENETUNREACH` = firewalled/IP-blocked, `ECONNREFUSED` = the
+> server is up but rejecting the connection, `ECONNRESET` = connection reset.
+> A `200` here proves the API is reachable from that host. You can also check
+> port 3030 reachability from many global locations at https://check-host.net.
 
 LLM failures (wrong key, unreachable Ollama, model not pulled, provider
 4xx/5xx) surface the provider's actual error message in the UI **and** are

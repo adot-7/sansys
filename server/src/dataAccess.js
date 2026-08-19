@@ -170,6 +170,50 @@ export async function fetchPatient(dfn) {
   return patient;
 }
 
+// ---- Connectivity diagnostics ----
+
+// Probe a few Sansys endpoints straight from this host and report status,
+// latency and — on failure — the OS-level error code (err.cause.code). Use
+// this to tell apart "server is down" (reachable but HTTP 5xx), "connection
+// refused" (ECONNREFUSED) and "firewalled / IP-blocked" (ETIMEDOUT, ENETUNREACH).
+export async function diagSansysConnectivity() {
+  const base = config.sansysBaseUrl;
+  const probes = [
+    { name: 'demographics', method: 'GET', path: `/patientHome/load-demographics/${encodeURIComponent(DFN)}?userId=1` },
+    { name: 'vitals', method: 'GET', path: `/vitals/dash/load/${encodeURIComponent(DFN)}?fromDate=&toDate=&range=1` },
+    { name: 'problems', method: 'POST', path: '/problems/dash-list', body: { dfn: DFN, status: '', visit_id: VISIT_ID } },
+  ];
+  const results = await Promise.all(
+    probes.map(async (p) => {
+      const t0 = performance.now();
+      const url = `${base}${p.path}`;
+      try {
+        const res = await fetchWithTimeout(
+          url,
+          {
+            method: p.method,
+            headers: p.body ? { 'Content-Type': 'application/json' } : undefined,
+            body: p.body ? JSON.stringify(p.body) : undefined,
+          },
+          5000,
+        );
+        return { name: p.name, method: p.method, url, ok: res.ok, status: res.status, ms: Math.round(performance.now() - t0) };
+      } catch (err) {
+        return {
+          name: p.name,
+          method: p.method,
+          url,
+          ok: false,
+          error: err.message,
+          cause: err.cause?.code ?? err.cause?.message ?? null,
+          ms: Math.round(performance.now() - t0),
+        };
+      }
+    }),
+  );
+  return { baseUrl: base, reachable: results.some((r) => r.ok), results };
+}
+
 // ---- shared field mappers (raw Sansys item -> normalized contract item) ----
 
 function normalizeDemographics(raw) {

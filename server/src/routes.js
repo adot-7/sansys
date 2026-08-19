@@ -1,6 +1,6 @@
 // routes.js — the REST API exactly as frozen in contracts.md. Mounted at /api.
 import { Router } from 'express';
-import { fetchPatient } from './dataAccess.js';
+import { fetchPatient, diagSansysConnectivity } from './dataAccess.js';
 import { listSpecialties, loadSpecialty } from './specialties/index.js';
 import { generateDraft, regenerateSection } from './llm/index.js';
 import { getSummary, saveSummary } from './store.js';
@@ -9,6 +9,10 @@ export const apiRouter = Router();
 
 // Wrap async handlers so rejections reach the express error path (500 JSON).
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+
+apiRouter.get('/diag/sansys', wrap(async (req, res) => {
+  res.json(await diagSansysConnectivity());
+}));
 
 apiRouter.get('/patients/:dfn', wrap(async (req, res) => {
   res.json(await fetchPatient(req.params.dfn));
@@ -68,6 +72,7 @@ apiRouter.get('/patients/:dfn/summary', (req, res) => {
 // JSON error path: provider/dataAccess failures surface as a plain 500 and are
 // logged so real failures are visible in the server console.
 apiRouter.use((err, req, res, next) => {
-  console.error(`[api] ${req.method} ${req.originalUrl} -> ${err.status || 500}: ${err.message}`);
+  const cause = err.cause?.code ?? err.cause?.message ?? '';
+  console.error(`[api] ${req.method} ${req.originalUrl} -> ${err.status || 500}: ${err.message}${cause ? ` (${cause})` : ''}`);
   res.status(500).json({ error: err.message || 'Internal server error' });
 });
