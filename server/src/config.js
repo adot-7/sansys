@@ -8,8 +8,9 @@ export const config = {
   port: Number(process.env.PORT || 3001),
   sansysBaseUrl: process.env.SANSYS_BASE_URL || 'http://182.70.249.137:3030',
   // Per-endpoint live fetch timeout (ms). On timeout the request fails — there
-  // is no fallback data anymore.
-  sansysTimeoutMs: Number(process.env.SANSYS_TIMEOUT_MS || 10000),
+  // is no fallback data anymore. Generous default: the test server can be slow
+  // from cloud/foreign hosts (e.g. Render), where it may take >10s to respond.
+  sansysTimeoutMs: Number(process.env.SANSYS_TIMEOUT_MS || 30000),
   llmProvider: process.env.LLM_PROVIDER || 'anthropic',
   anthropicApiKey: process.env.ANTHROPIC_API_KEY || '',
   anthropicModel: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514',

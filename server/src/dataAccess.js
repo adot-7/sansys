@@ -36,6 +36,11 @@ async function fetchWithTimeout(url, opts = {}, timeoutMs = config.sansysTimeout
   const t = setTimeout(() => controller.abort(), timeoutMs);
   try {
     return await fetch(url, { ...opts, signal: controller.signal });
+  } catch (err) {
+    if (err && err.name === 'AbortError') {
+      throw new Error(`Sansys request timed out after ${timeoutMs}ms: ${url}`);
+    }
+    throw err;
   } finally {
     clearTimeout(t);
   }

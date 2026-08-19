@@ -61,7 +61,7 @@ export OLLAMA_MODEL=gemma2   # whatever you pulled
 | Variable | Default | Purpose |
 |---|---|---|
 | `SANSYS_BASE_URL` | `http://182.70.249.137:3030` | Sansys test API base. |
-| `SANSYS_TIMEOUT_MS` | `10000` | Per-endpoint request timeout. A timeout fails that request — there is no fallback data. |
+| `SANSYS_TIMEOUT_MS` | `30000` | Per-endpoint request timeout. A timeout fails that request — there is no fallback data. |
 | `DB_FILE` | `server/data/summaries.db` | SQLite location for approved summaries. |
 | `PORT` | `3001` | Backend port. |
 
@@ -72,6 +72,14 @@ straight from the Sansys test API and normalized (see `server/src/sansys-api.md`
 for the exact request/response shapes). If an endpoint is unreachable, times
 out, or returns a non-2xx status, the whole patient fetch fails with a clear
 error and the UI shows it in the patient banner — nothing is fabricated.
+
+> **Deploying to a cloud host (Render, Fly, Railway, …):** the Sansys test
+> server (`http://182.70.249.137:3030`) responds in well under a second from
+> local/Indian networks but may be slow or outright blocked from foreign or
+> cloud egress IPs, producing `Sansys request timed out after …ms` errors. If
+> that happens, deploy to a region near the test server, or ask the Sansys team
+> to whitelist the host's outbound IPs. Raising `SANSYS_TIMEOUT_MS` only helps
+> with slowness, not with a blocked connection.
 
 LLM failures (wrong key, unreachable Ollama, model not pulled, provider
 4xx/5xx) surface the provider's actual error message in the UI **and** are
