@@ -4,8 +4,10 @@ Step-by-step guide to run this app on an existing Oracle Cloud **Always Free**
 compute instance. No cost, no pay-as-you-go. The SQLite database (approved
 summaries) persists on the instance's disk.
 
-> TL;DR: pick a region close to the Sansys test server (Mumbai `ap-mumbai-1`
-> is ideal), install Node 20, clone, build, run via systemd, open port 3001.
+> TL;DR: your existing instance must be in a region that can reach the Sansys
+> test server (the path matters more than anything else). Install Node 20, clone,
+> build, run via systemd, open port 3001. Only launch a new instance if you need
+> a cleaner box — it stays in your home region and on the same network path.
 
 ---
 
@@ -22,14 +24,62 @@ curl -m 15 -o /dev/null -w '%{http_code} %{time_total}s\n' \
 - **`200` in a couple seconds** → the path works, proceed.
 - **timeout / `000`** → that region's path to the server is blocked. The app
   retries (3× per endpoint) so transient blips are fine, but a consistently
-  failing region will never load patients. Launch a second Always Free instance
-  in **Mumbai (`ap-mumbai-1`)** if your current one is elsewhere.
+  failing region will never load patients. Note: Always Free instances are
+  **home-region only**, so launching another instance does *not* change the
+  region or network path — if the existing box can't reach it, fall back to the
+  Cloudflare Tunnel option in the README instead.
 
 Also confirm you have enough memory — this app wants ~150 MB free:
 
 ```bash
 free -h
 ```
+
+---
+
+## Launching a new Always Free instance (billing-safe)
+
+You probably don't need to. **Always Free compute can only be created in your
+home region**, so a second instance sits in the *same* region and on the *same*
+network path as the one you already have. Launching another only helps when the
+current box is short on RAM/disk or you want a clean machine — it never changes
+whether the region can reach the Sansys API.
+
+**Billing facts (what stays at $0):**
+- Allowed: **2** AMD `VM.Standard.E2.1.Micro` instances (1/8 OCPU, 1 GB RAM
+  each). If you already run one, adding the second is still free.
+- Allowed: Ampere A1 (ARM) — capped at **2 OCPU / 12 GB total** across all A1
+  instances since June 2026. If an existing A1 instance is 4 OCPU / 24 GB,
+  resize it to 2 / 12 — Oracle has been enforcing this and can stop over-limit
+  instances.
+- Storage: boot volumes count toward the **200 GB total**; each boot volume is
+  at least 47 GB, so two Micros (~94 GB) leave plenty of room.
+- **Free only if:** created in the home region, an "Always Free-eligible" shape
+  (console shows a `$0.00` / Always Free label), and total storage ≤ 200 GB.
+  Anything else — a paid shape, a non-home region, extra block volumes — is
+  billable.
+- Idle reclamation: Oracle may reclaim an Always Free instance idle for 7 days
+  (CPU and network below 20%; memory too on A1). A server that's actually used
+  is fine.
+
+**Console steps:**
+1. Menu → **Compute → Instances → Create instance**.
+2. **Name** + compartment. **Placement** must be your home region (pick the
+   availability domain shown).
+3. **Image**: Ubuntu 22.04 or Oracle Linux 8 (both Always Free-eligible).
+4. **Shape → Change shape**: find `VM.Standard.E2.1.Micro` (search "Micro", or
+   look under *Specialized and legacy*) and confirm it shows
+   **Always Free-eligible** / `$0.00`. If you see any price, that's a paid
+   shape — don't pick it.
+5. **Networking**: your existing VCN, public subnet, and assign a public IPv4.
+6. **Boot volume**: leave the default 47 GB.
+7. **SSH keys**: add your public key.
+8. **Create**. On "out of host capacity" (common for free shapes), try another
+   availability domain or retry later, or use an A1 (ARM) instance at 2 OCPU /
+   12 GB instead.
+9. After launch, grab the public IP and run the preflight curl above — if it
+   times out, the home region's path is blocked and a second instance won't
+   help; use the Cloudflare Tunnel option in the README.
 
 ## 1. Install Node 20
 
@@ -170,5 +220,6 @@ Back it up by copying the file off the box.
   so plain HTTP works for a prototype. If you want TLS, terminate it with nginx
   or Caddy in front of port 3001 — Let's Encrypt certs are free.
 - **Always Free limits.** The E2.1.Micro has 1 GB RAM — keep other services
-  light. ARM Ampere instances (2–4 OCPUs / up to 24 GB) are also in the free
-  tier and give more headroom; node works identically on both.
+  light. ARM Ampere A1 instances (up to 2 OCPUs / 12 GB total as of June 2026)
+  are also in the free tier and give more headroom; node works identically on
+  both.
