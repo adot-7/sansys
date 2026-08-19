@@ -1,0 +1,10 @@
+.git
+.zcode
+**/node_modules
+server/data
+server/public
+client/dist
+.env
+.env.*
+*.log
+.DS_Store

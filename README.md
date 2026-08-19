@@ -101,6 +101,36 @@ patient object, specialty config schema, and the LLM provider interface. See
 `server/src/sansys-api.md` for the actual external Sansys test API shapes —
 that is the document to keep updated when the upstream API changes.
 
+## Deploy on Fly.io (free, Mumbai region)
+
+The Sansys test API is a local test server exposed over the internet. Free hosts
+in the US/EU (Render, Vercel, …) often can't reach it reliably, while a host in
+India mirrors the network path your own browser uses. Fly.io's free allowance
+runs this app in **Mumbai (`bom`)** with a persistent SQLite volume.
+
+The repo already ships `fly.toml`, a `Dockerfile` and `.dockerignore`.
+
+```bash
+fly auth login
+fly launch --name sansys-discharge --no-deploy   # rename if taken; creates the app + data volume
+# set secrets (keys live only in Fly's encrypted store, never in code):
+fly secrets set LLM_PROVIDER=google
+fly secrets set GOOGLE_API_KEY=<your key>
+fly secrets set SANSYS_BASE_URL=http://182.70.249.137:3030
+fly deploy
+```
+
+Then open the printed `https://sansys-discharge.fly.dev` URL. The volume
+(`/data/summaries.db`) persists approved summaries across redeploys.
+
+Notes:
+- If `fly launch` didn't create the volume, run
+  `fly volumes create data --region bom --size 1` once, then `fly deploy`.
+- Check current free-tier limits at https://fly.io/docs/about/pricing/ — the
+  app fits the smallest shared-cpu plan; the machine may auto-stop when idle and
+  cold-start (~5s) on the next request.
+- `force_https = true` handles TLS; no external service needed.
+
 ## Tests
 
 ```bash
