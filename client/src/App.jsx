@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   fetchSpecialties,
+  createSpecialty,
   fetchPatient,
   generateDraft,
   regenerateSection,
@@ -13,6 +14,9 @@ import SectionNav from './components/SectionNav.jsx';
 import DraftPanel from './components/DraftPanel.jsx';
 import EditPanel from './components/EditPanel.jsx';
 import ApproveBar from './components/ApproveBar.jsx';
+import SettingsModal from './components/SettingsModal.jsx';
+import SpecialtyModal from './components/SpecialtyModal.jsx';
+import PrintSummary from './components/PrintSummary.jsx';
 
 const DEFAULT_DFN = 'PAT123456';
 
@@ -60,6 +64,9 @@ export default function App() {
   const [dfnInput, setDfnInput] = useState(DEFAULT_DFN);
   const [specialty, setSpecialty] = useState('general');
   const [specialties, setSpecialties] = useState([]);
+  const [selectedSectionIds, setSelectedSectionIds] = useState([]);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [createSpecialtyOpen, setCreateSpecialtyOpen] = useState(false);
 
   const [patient, setPatient] = useState(null);
   const [patientLoading, setPatientLoading] = useState(false);
@@ -96,6 +103,8 @@ export default function App() {
       .then((res) => {
         if (!cancelled && res && Array.isArray(res.specialties)) {
           setSpecialties(res.specialties);
+          const initial = res.specialties.find((item) => item.key === specialty) || res.specialties[0];
+          if (initial) setSelectedSectionIds(initial.sections.map((section) => section.id));
           if (res.specialties.length && !res.specialties.some((s) => s.key === 'general')) {
             setSpecialty(res.specialties[0].key);
           }
@@ -103,7 +112,7 @@ export default function App() {
       })
       .catch((err) => {
         if (!cancelled) {
-          setSpecialties([{ key: 'general', label: 'General', sectionCount: 0 }]);
+          setSpecialties([{ key: 'general', label: 'General', sectionCount: 0, sections: [] }]);
           console.error('[App] fetching specialties failed:', err);
         }
       });
@@ -112,7 +121,7 @@ export default function App() {
     };
   }, []);
 
-  const loadPatient = useCallback(async (dfn, spec) => {
+  const loadPatient = useCallback(async (dfn, spec, sectionIds = selectedSectionIds) => {
     // Drop any previous in-flight load superseded by this one.
     if (abortRef.current) abortRef.current.abort();
     const controller = new AbortController();
@@ -151,6 +160,7 @@ export default function App() {
         const ids = Object.keys(existing.sections);
         setApproved(existing);
         if (existing.specialty) setSpecialty(existing.specialty);
+        setSelectedSectionIds(ids);
         setSectionOrder(ids);
         setDrafts({});
         setEdits(existing.sections);
@@ -161,7 +171,7 @@ export default function App() {
       // No existing approved summary — auto-generate the first draft.
       setDraftLoading(true);
       try {
-        const d = await generateDraft(dfn, spec, signal);
+        const d = await generateDraft(dfn, spec, signal, sectionIds);
         if (signal.aborted) return;
         const ids = Object.keys(d.sections || {});
         setSectionOrder(ids);
@@ -182,7 +192,7 @@ export default function App() {
       setPatientError(err.message || 'Patient data unavailable');
       console.error('[App] patient fetch failed:', err);
     }
-  }, []);
+  }, [selectedSectionIds]);
 
   // requiredManual section ids, from server metadata if present, else fallback map.
   const requiredManualIds = useMemo(() => {
@@ -201,15 +211,47 @@ export default function App() {
     );
   }, [requiredManualIds, edits, drafts, readOnly]);
 
+  const specialtyConfig = specialties.find((item) => item.key === specialty);
+
   const sections = useMemo(
     () =>
       sectionOrder.map((id) => ({
         id,
-        title: titleFor(id),
+        title: specialtyConfig?.sections.find((section) => section.id === id)?.title || titleFor(id),
         meta: sectionMeta[id] || {},
       })),
-    [sectionOrder, sectionMeta]
+    [sectionOrder, sectionMeta, specialtyConfig]
   );
+
+  useEffect(() => {
+    if (!justApproved) return undefined;
+    const timer = window.setTimeout(() => window.print(), 100);
+    return () => window.clearTimeout(timer);
+  }, [justApproved]);
+
+  const changeSpecialty = useCallback((key) => {
+    const config = specialties.find((item) => item.key === key);
+    setSpecialty(key);
+    setSelectedSectionIds(config ? config.sections.map((section) => section.id) : []);
+    if (patient && !approved) loadPatient(dfnInput, key, config ? config.sections.map((section) => section.id) : []);
+  }, [specialties, patient, approved, loadPatient, dfnInput]);
+
+  const finishSettings = useCallback((key, ids) => {
+    setSpecialty(key);
+    setSelectedSectionIds(ids);
+    setSettingsOpen(false);
+    if (patient && !approved) loadPatient(dfnInput, key, ids);
+  }, [patient, approved, loadPatient, dfnInput]);
+
+  const handleCreateSpecialty = useCallback(async (config) => {
+    const result = await createSpecialty(config);
+    const res = await fetchSpecialties();
+    setSpecialties(res.specialties || []);
+    setSpecialty(result.specialty.key);
+    setSelectedSectionIds(result.specialty.sections.map((section) => section.id));
+    setCreateSpecialtyOpen(false);
+    setSettingsOpen(true);
+  }, []);
 
   const handleRegenerate = useCallback(
     async (sectionId) => {
@@ -286,17 +328,14 @@ export default function App() {
         dfn={dfnInput}
         onDfnChange={setDfnInput}
         specialty={specialty}
-        onSpecialtyChange={(k) => {
-          setSpecialty(k);
-          // Reload with the new config if a patient is already loaded and not approved.
-          if (patient && !approved) loadPatient(dfnInput, k);
-        }}
+        onSpecialtyChange={changeSpecialty}
         specialties={specialties}
         onLoad={() => {
           if (loading) return;
           loadPatient(dfnInput, specialty);
         }}
         loading={loading}
+        onSettings={() => setSettingsOpen(true)}
       />
 
       {patientError && <div className="banner banner-error">{patientError}</div>}
@@ -363,6 +402,19 @@ export default function App() {
           approvedInfo={approved ? { approvedAt: approved.approvedAt, approvedBy: approved.approvedBy } : null}
         />
       )}
+
+      {settingsOpen && (
+        <SettingsModal
+          specialties={specialties}
+          specialty={specialty}
+          selectedIds={selectedSectionIds}
+          onDone={finishSettings}
+          onCreate={() => { setSettingsOpen(false); setCreateSpecialtyOpen(true); }}
+          onClose={() => setSettingsOpen(false)}
+        />
+      )}
+      {createSpecialtyOpen && <SpecialtyModal onSave={handleCreateSpecialty} onClose={() => setCreateSpecialtyOpen(false)} />}
+      {approved && <PrintSummary patient={patient} approved={approved} sections={sections} />}
     </div>
   );
 }

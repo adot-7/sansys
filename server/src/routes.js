@@ -1,7 +1,7 @@
 // routes.js — the REST API exactly as frozen in contracts.md. Mounted at /api.
 import { Router } from 'express';
 import { fetchPatient, diagSansysConnectivity } from './dataAccess.js';
-import { listSpecialties, loadSpecialty } from './specialties/index.js';
+import { createSpecialty, listSpecialties, loadSpecialty } from './specialties/index.js';
 import { generateDraft, regenerateSection } from './llm/index.js';
 import { getSummary, saveSummary } from './store.js';
 
@@ -9,6 +9,17 @@ export const apiRouter = Router();
 
 // Wrap async handlers so rejections reach the express error path (500 JSON).
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+
+async function addCustomEndpointData(patientData, sections, dfn) {
+  const endpointSections = sections.filter((section) => section.endpoint);
+  await Promise.all(endpointSections.map(async (section) => {
+    const endpoint = section.endpoint.replaceAll('{dfn}', encodeURIComponent(dfn));
+    if (!/^https?:\/\//i.test(endpoint)) throw new Error(`Custom endpoint for "${section.id}" must use http or https`);
+    const response = await fetch(endpoint, { signal: AbortSignal.timeout(15000) });
+    if (!response.ok) throw new Error(`Custom endpoint for "${section.id}" returned HTTP ${response.status}`);
+    patientData[section.source || section.id] = await response.json();
+  }));
+}
 
 apiRouter.get('/diag/sansys', wrap(async (req, res) => {
   res.json(await diagSansysConnectivity());
@@ -22,11 +33,25 @@ apiRouter.get('/specialties', (req, res) => {
   res.json({ specialties: listSpecialties() });
 });
 
+apiRouter.post('/specialties', (req, res) => {
+  try {
+    res.status(201).json({ specialty: createSpecialty(req.body || {}) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 apiRouter.post('/patients/:dfn/draft', wrap(async (req, res) => {
   const specialtyKey = req.body?.specialty || 'general';
   const specialtyConfig = loadSpecialty(specialtyKey); // unknown keys fall back to general
   const patientData = await fetchPatient(req.params.dfn);
-  const { sections, provider } = await generateDraft(patientData, specialtyConfig);
+  const selectedIds = Array.isArray(req.body?.sectionIds) ? req.body.sectionIds : null;
+  const selectedConfig = selectedIds
+    ? { ...specialtyConfig, sections: specialtyConfig.sections.filter((section) => selectedIds.includes(section.id)) }
+    : specialtyConfig;
+  await addCustomEndpointData(patientData, selectedConfig.sections, req.params.dfn);
+  const { sections, provider } = await generateDraft(patientData, selectedConfig);
+  for (const section of selectedConfig.sections) if (!(section.id in sections)) sections[section.id] = '';
   res.json({ specialty: specialtyConfig.key, sections, provider });
 }));
 
@@ -36,6 +61,7 @@ apiRouter.post('/patients/:dfn/draft/:sectionId/regenerate', wrap(async (req, re
   const section = specialtyConfig.sections.find((s) => s.id === req.params.sectionId);
   if (!section) return res.status(404).json({ error: `Unknown section id "${req.params.sectionId}"` });
   const patientData = await fetchPatient(req.params.dfn);
+  await addCustomEndpointData(patientData, [section], req.params.dfn);
   const { text, provider } = await regenerateSection(req.params.sectionId, patientData, specialtyConfig, req.body?.currentDraft ?? {});
   res.json({ text, provider });
 }));

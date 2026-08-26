@@ -8,6 +8,7 @@ server/public/
 server/data/*.db
 server/data/*.db-shm
 server/data/*.db-wal
+server/data/custom-specialties.json
 
 # Environment / secrets
 .env

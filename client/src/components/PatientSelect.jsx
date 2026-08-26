@@ -8,6 +8,7 @@ export default function PatientSelect({
   specialties,
   onLoad,
   loading,
+  onSettings,
 }) {
   return (
     <div className="toolbar">
@@ -43,6 +44,9 @@ export default function PatientSelect({
         title="Load patient"
       >
         {loading ? 'Loading…' : 'Load Patient'}
+      </button>
+      <button type="button" className="btn" onClick={onSettings} title="Choose specialty sections">
+        Settings
       </button>
       <span className="toolbar-hint">Draft generates automatically after load</span>
     </div>

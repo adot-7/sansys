@@ -37,12 +37,19 @@ export function fetchSpecialties() {
   return request('/specialties');
 }
 
+export function createSpecialty(data) {
+  return post('/specialties', data);
+}
+
 export function fetchPatient(dfn, signal) {
   return request('/patients/' + encodeURIComponent(dfn), signal ? { signal } : {});
 }
 
-export function generateDraft(dfn, specialty, signal) {
-  return post('/patients/' + encodeURIComponent(dfn) + '/draft', { specialty }, signal);
+export function generateDraft(dfn, specialty, signal, sectionIds) {
+  return post('/patients/' + encodeURIComponent(dfn) + '/draft', {
+    specialty,
+    ...(sectionIds ? { sectionIds } : {}),
+  }, signal);
 }
 
 export function regenerateSection(dfn, sectionId, specialty, currentDraft, signal) {
