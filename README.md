@@ -101,12 +101,14 @@ In the Render service, open **Environment** and add/update these variables:
 ```text
 LLM_PROVIDER=anthropic
 ANTHROPIC_API_KEY=your-key
-ANTHROPIC_MODEL=claude-3-5-haiku-latest
+ANTHROPIC_MODEL=claude-haiku-4-5
 ```
 
 Save the changes and redeploy. The API key is read only by the server and is
-never sent to the browser. If Anthropic rejects the model name for your account,
-use the exact current Haiku model ID shown in the Anthropic Console instead.
+never sent to the browser. The pinned model ID is
+`claude-haiku-4-5-20251001`; use that instead of the alias if you prefer a fixed
+version. If Anthropic rejects either model name for your account, use the exact
+current Haiku model ID shown in the Anthropic Console instead.
 The app also supports the default model `claude-sonnet-4-20250514` when
 `ANTHROPIC_MODEL` is omitted.
 
