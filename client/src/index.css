@@ -625,6 +625,8 @@ textarea {
 .settings-specialty { display: block; width: 100%; padding: 7px 6px; text-align: left; border: 0; border-bottom: 1px solid #e4e4e4; background: #fff; cursor: pointer; }
 .settings-specialty:hover, .settings-specialty-active { background: var(--accent-bg); color: var(--accent); font-weight: 700; }
 .settings-add { margin-top: 14px; }
+.settings-sections-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.settings-section-actions { display: flex; gap: 5px; }
 .section-check { display: flex; align-items: center; gap: 7px; margin: 9px 0; }
 .section-check input { accent-color: var(--accent); }
 .specialty-modal { width: min(850px, 100%); }

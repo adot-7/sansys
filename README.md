@@ -94,6 +94,22 @@ LLM failures (wrong key, unreachable Ollama, model not pulled, provider
 logged to the server console (`[api] ... -> 500: <message>`), so you can see
 exactly what went wrong.
 
+### Use Claude on Render
+
+In the Render service, open **Environment** and add/update these variables:
+
+```text
+LLM_PROVIDER=anthropic
+ANTHROPIC_API_KEY=your-key
+ANTHROPIC_MODEL=claude-3-5-haiku-latest
+```
+
+Save the changes and redeploy. The API key is read only by the server and is
+never sent to the browser. If Anthropic rejects the model name for your account,
+use the exact current Haiku model ID shown in the Anthropic Console instead.
+The app also supports the default model `claude-sonnet-4-20250514` when
+`ANTHROPIC_MODEL` is omitted.
+
 ## API
 
 See `server/src/contracts.md` for the frozen REST contract, the normalized

@@ -24,7 +24,13 @@ export default function SettingsModal({ specialties, specialty, selectedIds, onD
             <button className="btn btn-small settings-add" onClick={onCreate}>+ New specialty</button>
           </div>
           <div className="settings-sections">
-            <div className="field-label">INCLUDE SECTIONS IN THIS SESSION</div>
+            <div className="settings-sections-header">
+              <div className="field-label">INCLUDE SECTIONS IN THIS SESSION</div>
+              <div className="settings-section-actions">
+                <button type="button" className="btn btn-small" onClick={() => setChecked((active?.sections || []).map((section) => section.id))}>Select all</button>
+                <button type="button" className="btn btn-small" onClick={() => setChecked([])}>Select none</button>
+              </div>
+            </div>
             {active?.sections.map((section) => (
               <label className="section-check" key={section.id}>
                 <input type="checkbox" checked={checked.includes(section.id)} onChange={() => toggle(section.id)} />
