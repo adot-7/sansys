@@ -23,6 +23,32 @@ General rules:
   normalizes to `""` / empty array rather than crashing. A drifted shape shows
   up as empty sections in the UI — if that happens, diff against this file.
 
+## Provided contract vs observed payload
+
+The payload examples originally provided for integration were not the exact
+responses returned by the live test server. The application therefore keeps a
+normalization layer in `dataAccess.js`; the frontend never consumes these raw
+payloads directly.
+
+| Area | Provided/expected shape | Observed live shape | Adaptation |
+| --- | --- | --- | --- |
+| Response wrapper | Lists were expected directly or with consistent nesting | Most responses are `{ success, data: { <list>: [...] } }` | `listOf()` accepts both direct and nested lists |
+| Patient identity | One patient identifier was expected everywhere | Endpoints mix `dfn`, `patientIen`, `visit_id`, `admissionId`, and `admissionIen` | The adapter uses the endpoint-specific identifier; they are not interchangeable |
+| Demographics | Normal names such as `firstName`, `lastName`, `uhid`, and `ipNo` | Raw names such as `lfname`, `llname`, `cpPID`, and `cpIPNo` | Mapped into the normalized demographics object |
+| Clinical notes | Full note content was expected | The list returns metadata; detail content and `patient_objects` are usually empty | Only note list metadata is surfaced |
+| Vitals | A populated vitals list was expected on the first request | First response can contain empty `vitals` plus an `admissions` list | The adapter retries with the returned admission ID |
+| Vital measurements | Measurements may be a list of readings | Measurements are an object keyed by vital name; abnormality is indicated by `bgColor` | Keys are converted to normalized measurement records and empty values are dropped |
+| Lab status | Status was expected as a string | Lab status is an object such as `{ name: "COMPLETED" }` | The nested status name is extracted |
+| Radiology status | Status was expected as an object | Radiology status is a string | The string is retained |
+| Allergies | Allergies were expected under a nested list property | `data` is the array itself and `status` is a top-level sibling | Both the status and item array are normalized |
+| Complaints/allergies | `dfn` was expected as the path identifier | These endpoints require `patientIen` in the path, plus `admissionIen` for complaints | The adapter uses the endpoint-specific patient/admission identifiers |
+| Medications | `dfn` was expected in the request body | `dfn` is required both in the query string and body | Both locations are sent |
+| Dates | Valid date strings were expected | Some live responses contain literal `Invalid date` | Invalid placeholders are normalized to blank strings |
+
+The stable object produced after these adaptations is documented in
+`contracts.md`. If the upstream payload changes again, update this table and
+the corresponding mapper in `dataAccess.js` before changing frontend code.
+
 ## 1. Demographics
 
 - Method/URL: `GET /patientHome/load-demographics/:dfn?userId=1`
