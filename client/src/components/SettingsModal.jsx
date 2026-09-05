@@ -40,7 +40,7 @@ export default function SettingsModal({ specialties, specialty, selectedIds, onD
             {!active && <div className="panel-note">No specialty selected.</div>}
           </div>
         </div>
-        <div className="modal-footer"><span className="toolbar-hint">Changes apply when you click Done.</span><button className="btn btn-primary" disabled={!active || checked.length === 0} onClick={() => onDone(activeKey, checked)}>Done</button></div>
+        <div className="modal-footer"><span className="toolbar-hint">Changes apply when you click Done.</span><button className="btn btn-primary" disabled={!active} onClick={() => onDone(activeKey, checked)}>Done</button></div>
       </div>
     </div>
   );

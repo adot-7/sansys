@@ -121,7 +121,7 @@ export default function App() {
     };
   }, []);
 
-  const loadPatient = useCallback(async (dfn, spec, sectionIds = selectedSectionIds) => {
+  const loadPatient = useCallback(async (dfn, spec, sectionIds = selectedSectionIds, useExistingSummary = true) => {
     // Drop any previous in-flight load superseded by this one.
     if (abortRef.current) abortRef.current.abort();
     const controller = new AbortController();
@@ -149,10 +149,12 @@ export default function App() {
       setPatient(p);
       setPatientLoading(false);
 
-      const sumRes = await fetchSummary(dfn, signal).catch((err) => {
-        if (err?.name === 'AbortError') throw err;
-        return null;
-      });
+       const sumRes = useExistingSummary
+         ? await fetchSummary(dfn, signal).catch((err) => {
+             if (err?.name === 'AbortError') throw err;
+             return null;
+           })
+         : null;
       if (signal.aborted) return;
       const existing =
         sumRes && sumRes.summary && sumRes.summary.sections ? sumRes.summary : null;
@@ -233,14 +235,14 @@ export default function App() {
     const config = specialties.find((item) => item.key === key);
     setSpecialty(key);
     setSelectedSectionIds(config ? config.sections.map((section) => section.id) : []);
-    if (patient && !approved) loadPatient(dfnInput, key, config ? config.sections.map((section) => section.id) : []);
+    if (patient && !approved) loadPatient(dfnInput, key, config ? config.sections.map((section) => section.id) : [], false);
   }, [specialties, patient, approved, loadPatient, dfnInput]);
 
   const finishSettings = useCallback((key, ids) => {
     setSpecialty(key);
     setSelectedSectionIds(ids);
     setSettingsOpen(false);
-    if (patient && !approved) loadPatient(dfnInput, key, ids);
+    if (patient && !approved) loadPatient(dfnInput, key, ids, false);
   }, [patient, approved, loadPatient, dfnInput]);
 
   const handleCreateSpecialty = useCallback(async (config) => {
@@ -316,6 +318,8 @@ export default function App() {
   const activeDraft = drafts[activeSection] || '';
   const activeEdit = edits[activeSection];
   const activeRegen = regenState[activeSection] || {};
+  const activeConfig = specialtyConfig?.sections.find((section) => section.id === activeSection);
+  const sourceData = activeConfig?.source ? patient?.[activeConfig.source] : null;
 
   return (
     <div className="app">
@@ -377,6 +381,14 @@ export default function App() {
                 regenError={activeRegen.error}
                 readOnly={readOnly}
               />
+              <details className="source-data-panel">
+                <summary>Source data used for this section</summary>
+                {activeConfig?.source ? (
+                  <pre className="source-data-pre">{JSON.stringify(sourceData ?? null, null, 2)}</pre>
+                ) : (
+                  <div className="panel-plain">No structured source. This section is intended for doctor-entered text.</div>
+                )}
+              </details>
               <EditPanel
                 sectionId={activeSection}
                 value={activeEdit !== undefined ? activeEdit : activeDraft}
