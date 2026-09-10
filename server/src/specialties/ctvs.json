@@ -95,7 +95,8 @@
       "id": "course-in-hospital",
       "title": "Course in Hospital",
       "source": "vitals",
-      "promptHint": "Synthesize labs, radiology, medication changes, and the vitals trend with emphasis on surgical and post-operative detail: perioperative changes, post-op vitals trend, transfusions or antibiotic courses where recorded. Structure around pre-op, intra-op (from the Procedure section the doctor fills), and post-op phases. Stick strictly to recorded data; doctor review required.",
+      "sources": ["notes", "labOrders", "radOrders", "medications", "vitals"],
+      "promptHint": "Synthesize notes, labs, radiology, medication changes, and the vitals trend with emphasis on surgical and post-operative detail: perioperative changes, post-op vitals trend, transfusions or antibiotic courses where recorded. Do not reproduce a medication list here; medication sections are canonical. Structure around pre-op, intra-op (from the Procedure section the doctor fills), and post-op phases. Stick strictly to recorded data; doctor review required.",
       "requiredManual": false,
       "manualEntry": false
     },

@@ -64,6 +64,8 @@ export default function App() {
   const [dfnInput, setDfnInput] = useState(DEFAULT_DFN);
   const [specialty, setSpecialty] = useState('general');
   const [specialties, setSpecialties] = useState([]);
+  const [episodes, setEpisodes] = useState([]);
+  const [episodeId, setEpisodeId] = useState('');
   const [selectedSectionIds, setSelectedSectionIds] = useState([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [createSpecialtyOpen, setCreateSpecialtyOpen] = useState(false);
@@ -121,7 +123,7 @@ export default function App() {
     };
   }, []);
 
-  const loadPatient = useCallback(async (dfn, spec, sectionIds = selectedSectionIds, useExistingSummary = true) => {
+  const loadPatient = useCallback(async (dfn, spec, sectionIds = selectedSectionIds, useExistingSummary = true, requestedEpisodeId = episodeId) => {
     // Drop any previous in-flight load superseded by this one.
     if (abortRef.current) abortRef.current.abort();
     const controller = new AbortController();
@@ -144,13 +146,16 @@ export default function App() {
     setJustApproved(false);
 
     try {
-      const p = await fetchPatient(dfn, signal);
+       const p = await fetchPatient(dfn, signal, requestedEpisodeId);
       if (signal.aborted) return;
-      setPatient(p);
-      setPatientLoading(false);
+       setPatient(p);
+       setEpisodes(p.episodes || []);
+       setEpisodeId(p.episodeId || requestedEpisodeId || '');
+       setPatientLoading(false);
+       const activeEpisodeId = p.episodeId || requestedEpisodeId || '';
 
        const sumRes = useExistingSummary
-         ? await fetchSummary(dfn, signal).catch((err) => {
+         ? await fetchSummary(dfn, signal, activeEpisodeId).catch((err) => {
              if (err?.name === 'AbortError') throw err;
              return null;
            })
@@ -173,7 +178,7 @@ export default function App() {
       // No existing approved summary — auto-generate the first draft.
       setDraftLoading(true);
       try {
-        const d = await generateDraft(dfn, spec, signal, sectionIds);
+        const d = await generateDraft(dfn, spec, signal, sectionIds, activeEpisodeId);
         if (signal.aborted) return;
         const ids = Object.keys(d.sections || {});
         setSectionOrder(ids);
@@ -194,7 +199,7 @@ export default function App() {
       setPatientError(err.message || 'Patient data unavailable');
       console.error('[App] patient fetch failed:', err);
     }
-  }, [selectedSectionIds]);
+  }, [selectedSectionIds, episodeId]);
 
   // requiredManual section ids, from server metadata if present, else fallback map.
   const requiredManualIds = useMemo(() => {
@@ -245,6 +250,11 @@ export default function App() {
     if (patient && !approved) loadPatient(dfnInput, key, ids, false);
   }, [patient, approved, loadPatient, dfnInput]);
 
+  const changeEpisode = useCallback((id) => {
+    setEpisodeId(id);
+    if (patient && !approved) loadPatient(dfnInput, specialty, selectedSectionIds, true, id);
+  }, [patient, approved, loadPatient, dfnInput, specialty, selectedSectionIds]);
+
   const handleCreateSpecialty = useCallback(async (config) => {
     const result = await createSpecialty(config);
     const res = await fetchSpecialties();
@@ -265,7 +275,7 @@ export default function App() {
         currentDraft[id] = (edits[id] || '').trim() ? edits[id] : drafts[id] || '';
       }
       try {
-        const res = await regenerateSection(dfnInput, sectionId, specialty, currentDraft);
+        const res = await regenerateSection(dfnInput, sectionId, specialty, currentDraft, undefined, episodeId);
         // Replace ONLY this section's draft. Never touch edits elsewhere.
         setDrafts((d) => ({ ...d, [sectionId]: res.text }));
         setRegenState((s) => ({ ...s, [sectionId]: { loading: false, error: '' } }));
@@ -277,7 +287,7 @@ export default function App() {
         console.error('[App] regenerate failed:', err);
       }
     },
-    [readOnly, dfnInput, specialty, sectionOrder, edits, drafts]
+    [readOnly, dfnInput, specialty, sectionOrder, edits, drafts, episodeId]
   );
 
   const handleEdit = useCallback((sectionId, text) => {
@@ -293,13 +303,14 @@ export default function App() {
       finalSections[id] = (edits[id] || '').trim() ? edits[id] : drafts[id] || '';
     }
     try {
-      const res = await approveSummary(dfnInput, specialty, finalSections, approvedBy.trim());
+      const res = await approveSummary(dfnInput, specialty, finalSections, approvedBy.trim(), undefined, episodeId);
       setApproving(false);
       setApproved({
         sections: finalSections,
         approvedAt: res.approvedAt,
         approvedBy: approvedBy.trim(),
-        specialty,
+         specialty,
+         episodeId,
       });
       setJustApproved(true);
     } catch (err) {
@@ -313,13 +324,16 @@ export default function App() {
       setApproveMissing(missing.length ? missing : requiredManualIds.filter((id) => !(finalSections[id] || '').trim()));
       console.error('[App] approve failed:', err);
     }
-  }, [dfnInput, specialty, sectionOrder, edits, drafts, approvedBy, requiredManualIds]);
+  }, [dfnInput, specialty, sectionOrder, edits, drafts, approvedBy, requiredManualIds, episodeId]);
 
   const activeDraft = drafts[activeSection] || '';
   const activeEdit = edits[activeSection];
   const activeRegen = regenState[activeSection] || {};
   const activeConfig = specialtyConfig?.sections.find((section) => section.id === activeSection);
-  const sourceData = activeConfig?.source ? patient?.[activeConfig.source] : null;
+  const activeSources = activeConfig?.sources || (activeConfig?.source ? [activeConfig.source] : []);
+  const sourceData = activeSources.length
+    ? activeSources.reduce((data, source) => ({ ...data, [source]: patient?.[source] ?? null }), {})
+    : null;
 
   return (
     <div className="app">
@@ -339,8 +353,11 @@ export default function App() {
           loadPatient(dfnInput, specialty);
         }}
         loading={loading}
-        onSettings={() => setSettingsOpen(true)}
-      />
+         onSettings={() => setSettingsOpen(true)}
+         episodeId={episodeId}
+         episodes={episodes}
+         onEpisodeChange={changeEpisode}
+       />
 
       {patientError && <div className="banner banner-error">{patientError}</div>}
 
@@ -383,7 +400,7 @@ export default function App() {
               />
               <details className="source-data-panel">
                 <summary>Source data used for this section</summary>
-                {activeConfig?.source ? (
+                {activeSources.length ? (
                   <pre className="source-data-pre">{JSON.stringify(sourceData ?? null, null, 2)}</pre>
                 ) : (
                   <div className="panel-plain">No structured source. This section is intended for doctor-entered text.</div>

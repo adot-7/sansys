@@ -24,6 +24,8 @@ dataAccess.js changes (its external reference is `sansys-api.md`).
   "radOrders":     [{ "procedure": "", "imagingType": "", "status": "", "dateTime": "" }],
   "vitals":        [{ "dateTime": "", "measurements": [{ "name": "", "value": "", "isAbnormal": false }] }], // newest last
   "notes":         [{ "title": "", "dateOfEntry": "", "status": "", "author": "" }]
+  ,"episodes":     [{ "id": "1-9013", "label": "23 JUL 2026 16:11 - MAX-SMART ICU-A", "admissionId": "9013", "startDate": "2026-07-23", "dateFrom": "2026-07-23", "dateTo": "" }]
+  ,"episodeId":     "1-9013"
 }
 ```
 
@@ -39,6 +41,7 @@ dataAccess.js changes (its external reference is `sansys-api.md`).
       "id": "diagnosis",              // kebab/camel stable id
       "title": "Diagnosis",
       "source": "diagnoses" | "complaints" | ... | null,   // key into normalized object, null = no data source
+      "sources": ["notes", "labOrders"], // optional multiple normalized sources for one section
       "promptHint": "...",            // biasing text for the LLM (skin findings, surgical detail, ...)
       "requiredManual": false,        // true => approve blocked while final text empty (Procedure in CTVS)
       "manualEntry": false            // true => never sent to LLM, left for doctor (Procedure everywhere)
@@ -66,14 +69,14 @@ when a patient's specialty has no config.
 
 ## REST API (all JSON)
 
-- `GET  /api/patients/:dfn` → normalized patient object
+- `GET  /api/patients/:dfn?episodeId=1-9013` → normalized patient object for the selected IP episode, including `episodes` and `episodeId`
 - `GET  /api/specialties` → `{ specialties: [{ key, label, sectionCount }] }`
-- `POST /api/patients/:dfn/draft` body `{ specialty }` → `{ specialty, sections: { id: text }, provider }`
-- `POST /api/patients/:dfn/draft/:sectionId/regenerate` body `{ specialty, currentDraft }` → `{ text, provider }`
-- `POST /api/patients/:dfn/summary/approve` body `{ specialty, sections, approvedBy }`
+- `POST /api/patients/:dfn/draft` body `{ specialty, episodeId, sectionIds }` → `{ specialty, sections: { id: text }, provider }`
+- `POST /api/patients/:dfn/draft/:sectionId/regenerate` body `{ specialty, episodeId, currentDraft }` → `{ text, provider }`
+- `POST /api/patients/:dfn/summary/approve` body `{ specialty, episodeId, sections, approvedBy }`
   → `400 { error }` if any `requiredManual` section is empty; else `{ ok: true, approvedAt }`
-- `GET  /api/patients/:dfn/summary` → `{ summary: null }` or
-  `{ summary: { patientDfn, specialty, sections, approvedAt, approvedBy } }`
+- `GET  /api/patients/:dfn/summary?episodeId=1-9013` → `{ summary: null }` or
+  `{ summary: { patientDfn, episodeId, specialty, sections, approvedAt, approvedBy } }`
 
 Express also serves the built React client from `server/public/` at `/`.
 

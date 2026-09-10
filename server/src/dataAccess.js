@@ -2,22 +2,21 @@
 // endpoints. This is the ONLY module that knows raw Sansys field names.
 // Identifier inconsistencies handled here:
 //   - demographics (#1): GET /patientHome/load-demographics/:dfn?userId=1  -> takes dfn
-//   - clinical notes (#2): POST /clinical-notes/list                       -> body patient_dfn (dfn), duz
+//   - clinical notes (#2): POST /clinical-notes/list                       -> body patient_dfn (dfn), duz, visit_id, date range
+//   - clinical note detail (#3): GET /clinical-notes/view/:note_ien        -> structured note content/patient objects
 //   - lab orders (#4): POST /lab/list                                      -> body dfn, visit_id
 //   - radiology (#5): POST /rad/cpoe-list                                  -> body dfn, visit_id
 //   - vitals (#6): GET /vitals/dash/load/:dfn?admissionId=&range=1         -> takes dfn + admissionId query
 //   - problems (#7): POST /problems/dash-list                              -> body dfn, visit_id
 //   - diagnosis (#8): POST /diagnosis/dash/list                            -> body dfn, visit_id, duz
-//   - chief complaints (#9): GET /chiefcomplaint/dash-list/:patientIen?status=1&admissionIen=1
-//                                                                           -> takes patientIen (NOT dfn) + admissionIen query
-//   - allergies (#10): GET /allergies/dashboard-list/:patientIen           -> takes patientIen (NOT dfn)
+//   - chief complaints (#9): GET /chiefcomplaint/dash-list/:patientIen?status=1&admissionIen=...
+//                                                                           -> takes patientIen (dfn) + admissionIen query
+//   - allergies (#10): GET /allergies/dashboard-list/:patientIen           -> takes patientIen (dfn), patient-level
 //   - medications (#11): POST /med/list?dfn=...                            -> dfn in query AND body
-// Clinical note detail (#3, GET /clinical-notes/view/:note_ien) is not part
-// of the normalized contract; content/patient_objects are usually empty in
-// test data, so the list metadata is all we surface. It is still one of the
-// 11 documented reads we never mutate.
-// visit_id for this patient in the test system is "2-4"; the complaint
-// endpoints use patientIen "1" / admissionIen "1" as in the documented samples.
+// Episode IDs are discovered from the API's visits.ipVisits lists. A value
+// such as "1-9013" is sent as visit_id; its numeric admission IEN (9013) is
+// sent to vitals and complaints. The date window for notes is inferred from
+// adjacent IP visit start dates and sent as a secondary safeguard.
 //
 // Every live response is wrapped in { success, data } with the list nested one
 // level down (see sansys-api.md). A failed or malformed call throws; there is
@@ -36,9 +35,6 @@ setGlobalDispatcher(new Agent({
 }));
 
 const DFN = 'PAT123456';
-const PATIENT_IEN = '1';
-const VISIT_ID = '2-4';
-const ADMISSION_IEN = '1';
 const DUZ = '1';
 const LIMIT = 50;
 
@@ -142,9 +138,9 @@ function listOf(raw, key) {
 // Vitals live responses include an admissions list and need the right
 // admissionId to return readings. If the first call comes back empty but
 // advertises admissions, retry once with the most recent admission.
-async function fetchVitals(dfn) {
+async function fetchVitals(dfn, episode) {
   const first = await getJSON(
-    `/vitals/dash/load/${encodeURIComponent(dfn)}?fromDate=&toDate=&range=1`,
+    `/vitals/dash/load/${encodeURIComponent(dfn)}?fromDate=&toDate=&admissionId=${encodeURIComponent(episode.admissionId)}&range=1`,
   );
   const vitals = listOf(first, 'vitals');
   const admissions = first?.data?.admissions ?? first?.admissions ?? [];
@@ -158,38 +154,162 @@ async function fetchVitals(dfn) {
   return first;
 }
 
-export async function fetchPatient(dfn) {
+function extractVisits(raw) {
+  return raw?.data?.visits ?? raw?.visits ?? {};
+}
+
+function parseEpisodeDate(label) {
+  const match = String(label || '').match(/^(\d{1,2})\s+([A-Z]{3})[ ,]+(\d{4})/i);
+  if (!match) return '';
+  const months = { JAN: 0, FEB: 1, MAR: 2, APR: 3, MAY: 4, JUN: 5, JUL: 6, AUG: 7, SEP: 8, OCT: 9, NOV: 10, DEC: 11 };
+  const month = months[match[2].toUpperCase()];
+  if (month === undefined) return '';
+  return new Date(Date.UTC(Number(match[3]), month, Number(match[1]))).toISOString().slice(0, 10);
+}
+
+function buildEpisodes(...responses) {
+  const byId = new Map();
+  for (const response of responses) {
+    for (const visit of extractVisits(response).ipVisits || []) {
+      const id = String(visit.id ?? '');
+      if (!/^1-\d+$/.test(id)) continue;
+      byId.set(id, {
+        id,
+        label: String(visit.name || visit.label || id),
+        startDate: parseEpisodeDate(visit.name || visit.label),
+        admissionId: id.slice(2),
+        admissionIen: id.slice(2),
+      });
+    }
+  }
+  const episodes = [...byId.values()].sort((a, b) => String(b.startDate).localeCompare(String(a.startDate)));
+  for (let i = 0; i < episodes.length; i++) {
+    const previous = episodes[i - 1];
+    episodes[i].dateFrom = episodes[i].startDate;
+    episodes[i].dateTo = previous?.startDate ? addDays(previous.startDate, -1) : '';
+  }
+  return episodes;
+}
+
+function addDays(date, amount) {
+  if (!date) return '';
+  const value = new Date(`${date}T00:00:00Z`);
+  value.setUTCDate(value.getUTCDate() + amount);
+  return value.toISOString().slice(0, 10);
+}
+
+function parseLooseDate(value) {
+  const text = String(value || '').replace(/SEPT/gi, 'SEP').replace(/,/g, '');
+  const date = new Date(text);
+  return Number.isNaN(date.getTime()) ? '' : date.toISOString().slice(0, 10);
+}
+
+function inEpisodeWindow(value, episode) {
+  const date = parseLooseDate(value);
+  if (!date || !episode.dateFrom) return true;
+  return date >= episode.dateFrom && (!episode.dateTo || date <= episode.dateTo);
+}
+
+function chooseEpisode(episodes, requestedId, discovery) {
+  const defaultId = discovery?.data?.default_visit || discovery?.default_visit || episodes[0]?.id || '';
+  return episodes.find((episode) => episode.id === requestedId) || episodes.find((episode) => episode.id === defaultId) || episodes[0] || {
+    id: requestedId || '2-4',
+    label: requestedId || 'Current episode',
+    startDate: '',
+    dateFrom: '',
+    dateTo: '',
+    admissionId: String(requestedId || '2-4').split('-').pop(),
+    admissionIen: String(requestedId || '2-4').split('-').pop(),
+  };
+}
+
+async function fetchNoteList(dfn, episode) {
+  const all = [];
+  let offset = 0;
+  let total = Infinity;
+  while (offset < total) {
+    const response = await postJSON('/clinical-notes/list', {
+      patient_dfn: dfn,
+      duz: DUZ,
+      limit: LIMIT,
+      offset,
+      date_from: episode.dateFrom,
+      date_to: episode.dateTo,
+      search_text: '',
+      status_filter: '',
+      visit_id: episode.id,
+    });
+    const page = listOf(response, 'notes');
+    all.push(...page);
+    total = Number(response?.total_records ?? response?.data?.total_records ?? all.length);
+    if (!page.length || all.length >= total) break;
+    offset += page.length;
+  }
+  return all;
+}
+
+function flattenNoteContent(content, lines = []) {
+  for (const group of content || []) {
+    for (const question of group.questions || []) {
+      if (str(question.question) || str(question.answer)) lines.push(`${str(question.question)}${question.question ? ': ' : ''}${str(question.answer)}`);
+      flattenNoteContent(question.children, lines);
+    }
+  }
+  return lines;
+}
+
+async function fetchNotes(dfn, episode) {
+  const list = await fetchNoteList(dfn, episode);
+  const detailed = [];
+  for (let i = 0; i < list.length; i += 8) {
+    const batch = await Promise.all(list.slice(i, i + 8).map(async (note) => {
+      try {
+        return await getJSON(`/clinical-notes/view/${encodeURIComponent(note.note_ien)}`);
+      } catch (err) {
+        console.warn(`[sansys] note ${note.note_ien} detail unavailable: ${err.message}`);
+        return null;
+      }
+    }));
+    detailed.push(...batch);
+  }
+  const notes = list.map((note, index) => mapNote(note, detailed[index]));
+  const embeddedMedications = detailed.flatMap((detail) => detail?.data?.patient_objects?.medications || []);
+  return { notes, embeddedMedications };
+}
+
+export async function fetchPatient(dfn, requestedEpisodeId) {
   dfn = dfn || DFN;
-  // All ten calls run in parallel: the live API answers in seconds,
+  const discoveryRaw = await postJSON('/diagnosis/dash/list', { dfn, visit_id: '', duz: DUZ });
+  const episodes = buildEpisodes(discoveryRaw);
+  const episode = chooseEpisode(episodes, requestedEpisodeId, discoveryRaw);
+  // All episode-scoped calls run in parallel: the live API answers in seconds,
   // sequential fetches would stack.
   const [
     demographicsRaw,
-    notesRaw,
+     notesResult,
     labsRaw,
     radRaw,
     vitalsRaw,
     problemsRaw,
-    diagnosisRaw,
+     diagnosisRaw,
     complaintsRaw,
     allergiesRaw,
     medsRaw,
   ] = await Promise.all([
     getJSON(`/patientHome/load-demographics/${encodeURIComponent(dfn)}?userId=1`),
-    postJSON('/clinical-notes/list',
-      { patient_dfn: dfn, duz: DUZ, limit: LIMIT, offset: 0, date_from: '', date_to: '', search_text: '', status_filter: '' }),
-    postJSON('/lab/list',
-      { dfn, status: '', visit_id: VISIT_ID, from_date: '', to_date: '' }),
-    postJSON('/rad/cpoe-list',
-      { dfn, status: '', visit_id: VISIT_ID, from_date: '', to_date: '' }),
-    fetchVitals(dfn),
-    postJSON('/problems/dash-list',
-      { dfn, status: '', visit_id: VISIT_ID }),
-    postJSON('/diagnosis/dash/list',
-      { dfn, visit_id: VISIT_ID, duz: DUZ }),
-    getJSON(`/chiefcomplaint/dash-list/${encodeURIComponent(PATIENT_IEN)}?status=1&admissionIen=${encodeURIComponent(ADMISSION_IEN)}`),
-    getJSON(`/allergies/dashboard-list/${encodeURIComponent(PATIENT_IEN)}`),
-    postJSON(`/med/list?dfn=${encodeURIComponent(dfn)}`,
-      { dfn, status: '', schedule_type: '', visit_id: VISIT_ID, from_date: '', to_date: '' }),
+     fetchNotes(dfn, episode),
+     postJSON('/lab/list',
+       { dfn, status: '', visit_id: episode.id, from_date: '', to_date: '' }),
+     postJSON('/rad/cpoe-list',
+       { dfn, status: '', visit_id: episode.id, from_date: '', to_date: '' }),
+     fetchVitals(dfn, episode),
+     postJSON('/problems/dash-list',
+       { dfn, status: '', visit_id: episode.id }),
+     requestedEpisodeId || episodes.length ? postJSON('/diagnosis/dash/list', { dfn, visit_id: episode.id, duz: DUZ }) : Promise.resolve(discoveryRaw),
+     getJSON(`/chiefcomplaint/dash-list/${encodeURIComponent(dfn)}?status=1&admissionIen=${encodeURIComponent(episode.admissionIen)}`),
+     getJSON(`/allergies/dashboard-list/${encodeURIComponent(dfn)}`),
+     postJSON(`/med/list?dfn=${encodeURIComponent(dfn)}`,
+       { dfn, status: '', schedule_type: '', visit_id: episode.id, from_date: '', to_date: '' }),
   ]);
 
   // ---- Normalization into the frozen contract shape (see contracts.md) ----
@@ -197,15 +317,22 @@ export async function fetchPatient(dfn) {
     dfn,
     demographics: normalizeDemographics(demographicsRaw),
     complaints: listOf(complaintsRaw, 'complaints').map(mapComplaint),
-    diagnoses: sortDiagnoses(listOf(diagnosisRaw, 'diagnoses')),
-    problems: listOf(problemsRaw, 'problems').map(mapProblem),
+     diagnoses: sortDiagnoses(listOf(diagnosisRaw, 'diagnoses')),
+     problems: listOf(problemsRaw, 'problems').map(mapProblem),
     allergies: mapAllergies(allergiesRaw),
-    medications: listOf(medsRaw, 'orders').map(mapMedication),
-    labOrders: listOf(labsRaw, 'orders').map(mapLab),
-    radOrders: listOf(radRaw, 'orders').map(mapRad),
-    vitals: normalizeVitals(vitalsRaw),
-    notes: listOf(notesRaw, 'notes').map(mapNote),
+     medications: listOf(medsRaw, 'orders').map(mapMedication),
+     labOrders: listOf(labsRaw, 'orders').map(mapLab),
+     radOrders: listOf(radRaw, 'orders').map(mapRad),
+     vitals: normalizeVitals(vitalsRaw).filter((item) => inEpisodeWindow(item.dateTime, episode)),
+     notes: notesResult.notes,
+     episodes,
+     episodeId: episode.id,
+     episode,
   };
+  patient.medications = [
+    ...patient.medications,
+    ...notesResult.embeddedMedications.map(mapEmbeddedMedication),
+  ].filter((medication, index, list) => list.findIndex((item) => item.medication === medication.medication && item.startDate === medication.startDate) === index);
   console.log(
     `[sansys] patient ${dfn} assembled (${patient.complaints.length} complaints, ` +
     `${patient.diagnoses.length} diagnoses, ${patient.problems.length} problems, ` +
@@ -227,7 +354,7 @@ export async function diagSansysConnectivity() {
   const probes = [
     { name: 'demographics', method: 'GET', path: `/patientHome/load-demographics/${encodeURIComponent(DFN)}?userId=1` },
     { name: 'vitals', method: 'GET', path: `/vitals/dash/load/${encodeURIComponent(DFN)}?fromDate=&toDate=&range=1` },
-    { name: 'problems', method: 'POST', path: '/problems/dash-list', body: { dfn: DFN, status: '', visit_id: VISIT_ID } },
+    { name: 'problems', method: 'POST', path: '/problems/dash-list', body: { dfn: DFN, status: '', visit_id: '' } },
   ];
   const results = await Promise.all(
     probes.map(async (p) => {
@@ -351,12 +478,26 @@ function mapRad(r) {
   };
 }
 
-function mapNote(n) {
+function mapNote(n, detail) {
+  const objects = detail?.data?.patient_objects || {};
   return {
+    noteIen: str(n.note_ien),
     title: str(n.note_title),
     dateOfEntry: str(n.date_of_entry),
     status: str(n.status_name),
     author: str(n.author_name),
+    content: flattenNoteContent(detail?.data?.content),
+    patientObjects: { ...objects, medications: undefined },
+  };
+}
+
+function mapEmbeddedMedication(m) {
+  return {
+    medication: str(m.medication_name),
+    startDate: str(m.entry_datetime),
+    stopDate: '',
+    status: str(m.status),
+    scheduleType: str(m.schedule),
   };
 }
 

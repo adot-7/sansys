@@ -49,6 +49,45 @@ The stable object produced after these adaptations is documented in
 `contracts.md`. If the upstream payload changes again, update this table and
 the corresponding mapper in `dataAccess.js` before changing frontend code.
 
+## Episodes and admission filtering
+
+The live API exposes inpatient episodes through `visits.ipVisits` in several
+responses, including medication, diagnosis, lab, and problem responses. A live
+example is:
+
+```json
+{
+  "default_visit": "1-9013",
+  "visits": {
+    "ipVisits": [
+      { "id": "1-9013", "name": "23 JUL 2026 16:11 - MAX-SMART ICU-A" },
+      { "id": "1-1", "name": "25 MAY 2025 16:00 - MAX-SMART ICU-A" }
+    ]
+  }
+}
+```
+
+The full ID (`1-9013`) is used as `visit_id` for medications, labs,
+radiology, problems, and diagnoses. The numeric suffix (`9013`) is used as
+`admissionId` for vitals and `admissionIen` for complaints. The patient DFN is
+used as `patientIen` by the live complaints/allergies endpoints.
+
+The notes list accepts `visit_id` in the request body, as well as `date_from`
+and `date_to`. The adapter sends the full IP visit ID and retains the derived
+date window as a secondary safeguard. It then loads
+`/clinical-notes/view/:note_ien` so structured note content and
+`patient_objects` can contribute to the episode summary.
+
+Live comparison caveat: for `PAT123456`, notes, problems, and complaints
+returned different records for `1-9013` and `1-1`, but labs, radiology,
+medications, diagnoses, and vitals returned the same record IDs for both
+requests. Those endpoints accept `visit_id`/`admissionId`, but this dataset does
+not prove that they apply the filter. Do not describe those collections as
+fully episode-isolated until Sansys confirms the filtering semantics or a
+patient with independently verifiable episode data is tested.
+
+Allergies currently have no episode parameter and remain patient-level data.
+
 ## 1. Demographics
 
 - Method/URL: `GET /patientHome/load-demographics/:dfn?userId=1`
@@ -76,40 +115,47 @@ the corresponding mapper in `dataAccess.js` before changing frontend code.
 ## 2. Clinical notes (list)
 
 - Method/URL: `POST /clinical-notes/list`
-- Identifiers: body `patient_dfn` (a `dfn`), `duz`.
-- Body: `{ patient_dfn, duz, limit, offset, date_from, date_to, search_text, status_filter }`
+- Identifiers: body `patient_dfn` (a `dfn`), `duz`, and optional full `visit_id`.
+- Body: `{ patient_dfn, duz, limit, offset, date_from, date_to, search_text, status_filter, visit_id }`
 
 ```jsonc
 {
   "success": true,
-  "data": {
-    "notes": [
+  "data": [
       {
-        "note_ien": "N-9001",
+        "note_ien": "271",
         "note_title": "Admission Note",
-        "date_of_entry": "2026-08-01 11:05",
-        "status_name": "COMPLETED",
-        "author_name": "Dr. A. Menon"
+        "date_of_entry": "05 AUG 2026 14:17",
+        "status_name": "UNSIGNED",
+        "author_name": "Dr. Pratiksha"
       }
     ]
-  }
 }
 ```
 
 ## 3. Clinical note detail
 
 - Method/URL: `GET /clinical-notes/view/:note_ien`
-- Identifiers: path param `note_ien`.
-- **Not part of the normalized contract.** `content` and `patient_objects`
-  (vitals/allergies references) are usually empty in test data, so the app only
-  surfaces list metadata from #2. Never mutated.
+- Identifier: path param `note_ien`.
+- The adapter uses `content` and `patient_objects` from this response as
+  additional evidence for the selected episode. The endpoint itself has no
+  separate episode parameter; episode selection happens in the note-list call.
 
 ```jsonc
 {
   "success": true,
   "data": {
-    "content": "",
-    "patient_objects": []
+    "metadata": {
+      "note_ien": "39",
+      "patient_dfn": "PAT123456",
+      "template_name": "INITIAL ASSESSMENT NOTES"
+    },
+    "content": [],
+    "patient_objects": {
+      "vitals": [],
+      "medications": [],
+      "labs": []
+    }
   }
 }
 ```

@@ -95,7 +95,8 @@
       "id": "course-in-hospital",
       "title": "Course in Hospital",
       "source": "vitals",
-      "promptHint": "Synthesize lab orders, radiology orders, medication changes, and the vitals trend across the stay into a brief chronological course. Stick to what the data shows; this section needs the doctor's close review before approval.",
+      "sources": ["notes", "labOrders", "radOrders", "medications", "vitals"],
+      "promptHint": "Synthesize notes, lab orders, radiology orders, medication changes, and the vitals trend across the stay into a brief chronological course. Do not reproduce a medication list here; medication sections are canonical. Stick to what the data shows; this section needs the doctor's close review before approval.",
       "requiredManual": false,
       "manualEntry": false
     },

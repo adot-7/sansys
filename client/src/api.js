@@ -41,33 +41,37 @@ export function createSpecialty(data) {
   return post('/specialties', data);
 }
 
-export function fetchPatient(dfn, signal) {
-  return request('/patients/' + encodeURIComponent(dfn), signal ? { signal } : {});
+export function fetchPatient(dfn, signal, episodeId) {
+  const query = episodeId ? '?episodeId=' + encodeURIComponent(episodeId) : '';
+  return request('/patients/' + encodeURIComponent(dfn) + query, signal ? { signal } : {});
 }
 
-export function generateDraft(dfn, specialty, signal, sectionIds) {
+export function generateDraft(dfn, specialty, signal, sectionIds, episodeId) {
   return post('/patients/' + encodeURIComponent(dfn) + '/draft', {
     specialty,
     ...(sectionIds ? { sectionIds } : {}),
+    ...(episodeId ? { episodeId } : {}),
   }, signal);
 }
 
-export function regenerateSection(dfn, sectionId, specialty, currentDraft, signal) {
+export function regenerateSection(dfn, sectionId, specialty, currentDraft, signal, episodeId) {
   return post(
     '/patients/' + encodeURIComponent(dfn) + '/draft/' + encodeURIComponent(sectionId) + '/regenerate',
-    { specialty, currentDraft },
+    { specialty, currentDraft, ...(episodeId ? { episodeId } : {}) },
     signal
   );
 }
 
-export function approveSummary(dfn, specialty, sections, approvedBy, signal) {
+export function approveSummary(dfn, specialty, sections, approvedBy, signal, episodeId) {
   return post('/patients/' + encodeURIComponent(dfn) + '/summary/approve', {
     specialty,
     sections,
     approvedBy,
+    ...(episodeId ? { episodeId } : {}),
   }, signal);
 }
 
-export function fetchSummary(dfn, signal) {
-  return request('/patients/' + encodeURIComponent(dfn) + '/summary', signal ? { signal } : {});
+export function fetchSummary(dfn, signal, episodeId) {
+  const query = episodeId ? '?episodeId=' + encodeURIComponent(episodeId) : '';
+  return request('/patients/' + encodeURIComponent(dfn) + '/summary' + query, signal ? { signal } : {});
 }

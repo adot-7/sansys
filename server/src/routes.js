@@ -26,7 +26,7 @@ apiRouter.get('/diag/sansys', wrap(async (req, res) => {
 }));
 
 apiRouter.get('/patients/:dfn', wrap(async (req, res) => {
-  res.json(await fetchPatient(req.params.dfn));
+  res.json(await fetchPatient(req.params.dfn, req.query.episodeId));
 }));
 
 apiRouter.get('/specialties', (req, res) => {
@@ -44,7 +44,7 @@ apiRouter.post('/specialties', (req, res) => {
 apiRouter.post('/patients/:dfn/draft', wrap(async (req, res) => {
   const specialtyKey = req.body?.specialty || 'general';
   const specialtyConfig = loadSpecialty(specialtyKey); // unknown keys fall back to general
-  const patientData = await fetchPatient(req.params.dfn);
+  const patientData = await fetchPatient(req.params.dfn, req.body?.episodeId);
   const selectedIds = Array.isArray(req.body?.sectionIds) ? req.body.sectionIds : null;
   const selectedConfig = selectedIds
     ? { ...specialtyConfig, sections: specialtyConfig.sections.filter((section) => selectedIds.includes(section.id)) }
@@ -60,14 +60,14 @@ apiRouter.post('/patients/:dfn/draft/:sectionId/regenerate', wrap(async (req, re
   const specialtyConfig = loadSpecialty(specialtyKey);
   const section = specialtyConfig.sections.find((s) => s.id === req.params.sectionId);
   if (!section) return res.status(404).json({ error: `Unknown section id "${req.params.sectionId}"` });
-  const patientData = await fetchPatient(req.params.dfn);
+  const patientData = await fetchPatient(req.params.dfn, req.body?.episodeId);
   await addCustomEndpointData(patientData, [section], req.params.dfn);
   const { text, provider } = await regenerateSection(req.params.sectionId, patientData, specialtyConfig, req.body?.currentDraft ?? {});
   res.json({ text, provider });
 }));
 
 apiRouter.post('/patients/:dfn/summary/approve', wrap(async (req, res) => {
-  const { specialty, sections, approvedBy } = req.body ?? {};
+  const { specialty, sections, approvedBy, episodeId } = req.body ?? {};
   const specialtyConfig = loadSpecialty(specialty || 'general');
   const provided = sections ?? {};
 
@@ -84,6 +84,7 @@ apiRouter.post('/patients/:dfn/summary/approve', wrap(async (req, res) => {
 
   const { approvedAt } = saveSummary({
     patientDfn: req.params.dfn,
+    episodeId: episodeId ?? '',
     specialty: specialtyConfig.key,
     sections: provided,
     approvedBy: approvedBy ?? '',
@@ -92,7 +93,7 @@ apiRouter.post('/patients/:dfn/summary/approve', wrap(async (req, res) => {
 }));
 
 apiRouter.get('/patients/:dfn/summary', (req, res) => {
-  res.json({ summary: getSummary(req.params.dfn) });
+  res.json({ summary: getSummary(req.params.dfn, req.query.episodeId ?? '') });
 });
 
 // JSON error path: provider/dataAccess failures surface as a plain 500 and are

@@ -41,7 +41,7 @@ export function createOpenAICompatibleProvider({ baseUrl, apiKey, model, provide
       });
       const sections = {};
       for (const section of specialtyConfig.sections) {
-        const value = section.source === null ? '' : parsed?.[section.id];
+        const value = section.source === null && !Array.isArray(section.sources) ? '' : parsed?.[section.id];
         sections[section.id] = typeof value === 'string' ? value : value === undefined || value === null ? '' : String(value);
       }
       return { sections, provider: providerKey };

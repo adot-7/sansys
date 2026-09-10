@@ -95,7 +95,8 @@
       "id": "course-in-hospital",
       "title": "Course in Hospital",
       "source": "vitals",
-      "promptHint": "Synthesize labs, radiology, medication changes, and the vitals trend, emphasizing skin-directed therapy started or stopped during the stay (topicals, systemic agents) and any recorded fever or infection markers that drove changes. Stick strictly to the data; doctor review required.",
+      "sources": ["notes", "labOrders", "radOrders", "medications", "vitals"],
+      "promptHint": "Synthesize notes, labs, radiology, medication changes, and the vitals trend, emphasizing skin-directed therapy started or stopped during the stay (topicals, systemic agents) and any recorded fever or infection markers that drove changes. Do not reproduce a medication list here; medication sections are canonical. Stick strictly to the data; doctor review required.",
       "requiredManual": false,
       "manualEntry": false
     },

@@ -57,6 +57,9 @@ globalThis.fetch = async (input) => {
         : patientFixture.vitals,
     );
   }
+  if (url.includes('/clinical-notes/view/')) {
+    return jsonRes({ success: true, data: { content: [], patient_objects: {} } });
+  }
   if (url.includes('/problems/dash-list')) {
     // Simulate one transient network reset (ECONNRESET) — dataAccess must
     // retry this call rather than fail the whole patient load.
