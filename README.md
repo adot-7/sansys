@@ -20,17 +20,6 @@ cd client && npm run build
 cd ../server && npm start
 ```
 
-When running locally, put the non-secret provider settings and the secret key
-in the repository-root `.env` file. `npm start` loads that file automatically:
-
-```env
-LLM_PROVIDER=openai
-LLM_MODEL=gpt-5-nano
-LLM_API_KEY=your-openai-key
-```
-
-Never commit `.env` or paste the key into source files or chat.
-
 Open http://localhost:3001, use the default patient `PAT123456`, pick a
 specialty (General / Dermatology / CTVS). The first draft generates
 automatically on load.
