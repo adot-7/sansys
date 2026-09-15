@@ -252,7 +252,7 @@ export default function App() {
 
   const changeEpisode = useCallback((id) => {
     setEpisodeId(id);
-    if (patient && !approved) loadPatient(dfnInput, specialty, selectedSectionIds, true, id);
+    if (patient) loadPatient(dfnInput, specialty, selectedSectionIds, true, id);
   }, [patient, approved, loadPatient, dfnInput, specialty, selectedSectionIds]);
 
   const handleCreateSpecialty = useCallback(async (config) => {
@@ -362,7 +362,7 @@ export default function App() {
       {patientError && <div className="banner banner-error">{patientError}</div>}
 
       {patient && (
-        <PatientBanner patient={patient} approved={approved} justApproved={justApproved} />
+        <PatientBanner patient={patient} episode={patient.episode} approved={approved} justApproved={justApproved} />
       )}
 
       <div className="workspace">

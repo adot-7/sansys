@@ -29,9 +29,9 @@ export default function PatientSelect({
         />
       </label>
       <label className="field episode-field">
-        <span className="field-label">IPD EPISODE</span>
-        <select className="input" value={episodeId} onChange={(e) => onEpisodeChange(e.target.value)} disabled={!episodes.length || loading}>
-          {!episodes.length && <option value="">Load patient to find episodes</option>}
+        <span className="field-label">ADMISSION / IPD EPISODE</span>
+        <select className="input" value={episodeId} onChange={(e) => onEpisodeChange(e.target.value)} disabled={!episodes.length || loading} title="Choose the inpatient admission used for the summary">
+          {!episodes.length && <option value="">Load patient to choose admission</option>}
           {episodes.map((episode) => <option key={episode.id} value={episode.id}>{episode.label}</option>)}
         </select>
       </label>

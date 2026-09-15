@@ -1,6 +1,6 @@
 import React from 'react';
 
-export default function PatientBanner({ patient, approved, justApproved }) {
+export default function PatientBanner({ patient, episode, approved, justApproved }) {
   const d = patient.demographics || {};
   const name = [d.firstName, d.lastName].filter(Boolean).join(' ') || '—';
   const allergyItems = (patient.allergies && patient.allergies.items) || [];
@@ -51,6 +51,10 @@ export default function PatientBanner({ patient, approved, justApproved }) {
         <div className="banner-cell">
           <span className="field-label">ADMIT DATE</span>
           <span className="banner-value banner-mono">{d.admitDate || '—'}</span>
+        </div>
+        <div className="banner-cell banner-cell-episode">
+          <span className="field-label">SELECTED IPD EPISODE</span>
+          <span className="banner-value" title={episode?.id || ''}>{episode?.label || episode?.id || '—'}</span>
         </div>
         <div className="banner-cell banner-cell-grow">
           <span className="field-label">ALLERGIES</span>
