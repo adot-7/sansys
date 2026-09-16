@@ -6,6 +6,7 @@ export default function DraftPanel({
   onRegenerate,
   regenLoading,
   regenError,
+  draftLoading,
   readOnly,
 }) {
   if (readOnly) {
@@ -30,12 +31,14 @@ export default function DraftPanel({
           type="button"
           className="btn btn-small"
           onClick={onRegenerate}
-          disabled={regenLoading}
+          disabled={regenLoading || draftLoading}
         >
           {regenLoading ? 'Regenerating…' : 'Regenerate Section'}
         </button>
       </div>
-      {regenLoading ? (
+      {draftLoading ? (
+        <div className="panel-body panel-plain">Generating one full AI draft from the loaded clinical data…</div>
+      ) : regenLoading ? (
         <div className="panel-body panel-plain">Generating draft for this section…</div>
       ) : regenError ? (
         <div className="panel-body panel-plain panel-plain-error">

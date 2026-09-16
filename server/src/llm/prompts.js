@@ -29,17 +29,21 @@ function compact(value) {
 // a non-null `source` are included; sourceless sections never reach the model.
 export function buildDraftUserPrompt(patientData, specialtyConfig) {
   const sections = specialtyConfig.sections.filter((s) => s.source !== null || Array.isArray(s.sources));
+  const sourceNames = [...new Set(sections.flatMap((s) => s.sources || [s.source]).filter(Boolean))];
+  const sourceData = Object.fromEntries(sourceNames.map((source) => [source, patientData[source] ?? null]));
   const sectionSpecs = sections.map((s) => ({
     id: s.id,
     title: s.title,
     promptHint: s.promptHint,
-    data: (s.sources || [s.source]).reduce((all, source) => ({ ...all, [source]: patientData[source] ?? null }), {}),
+    sources: s.sources || [s.source],
   }));
 
   return [
     `Generate a draft discharge summary for specialty "${specialtyConfig.label}".`,
-    'For each section below, write the section text from its `data` field only.',
+    'For each section below, use only the listed source keys from the shared `sourceData` object.',
     'Respond with a single JSON object mapping each requested section id to its text.',
+    'Shared sourceData (each source is included once):',
+    JSON.stringify(sourceData, null, 2),
     'Sections:',
     JSON.stringify(sectionSpecs, null, 2),
   ].join('\n\n');

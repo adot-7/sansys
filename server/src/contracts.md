@@ -70,6 +70,7 @@ when a patient's specialty has no config.
 ## REST API (all JSON)
 
 - `GET  /api/patients/:dfn?episodeId=1-9013` → normalized patient object for the selected IP episode, including `episodes` and `episodeId`
+- `GET  /api/patients/:dfn/shell?episodeId=1-9013` → fast shell with demographics, allergies, `episodes`, and `episodeId`; clinical collections are empty until the full patient request completes
 - `GET  /api/specialties` → `{ specialties: [{ key, label, sectionCount }] }`
 - `POST /api/patients/:dfn/draft` body `{ specialty, episodeId, sectionIds }` → `{ specialty, sections: { id: text }, provider }`
 - `POST /api/patients/:dfn/draft/:sectionId/regenerate` body `{ specialty, episodeId, currentDraft }` → `{ text, provider }`
@@ -82,9 +83,14 @@ Express also serves the built React client from `server/public/` at `/`.
 
 ## Storage (store.js, better-sqlite3)
 
-Table `summaries`: `id INTEGER PK, patient_dfn TEXT, specialty TEXT,
-sections TEXT (JSON), approved_at TEXT, approved_by TEXT`. One row per
-patient_dfn (upsert on approve).
+Table `summaries`: `id INTEGER PK, patient_dfn TEXT, episode_id TEXT,
+specialty TEXT, sections TEXT (JSON), approved_at TEXT, approved_by TEXT`. One
+row per patient/episode pair (upsert on approve).
+
+Patient data is cached in process for 60 seconds only to prevent the draft and
+regeneration routes from refetching the same Sansys data. It is not persistent
+clinical storage; a process restart clears it. Clinical-note details are
+deferred from the patient endpoint and loaded when draft generation needs them.
 
 ## Hard rules
 

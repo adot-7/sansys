@@ -1,6 +1,6 @@
 // routes.js — the REST API exactly as frozen in contracts.md. Mounted at /api.
 import { Router } from 'express';
-import { fetchPatient, diagSansysConnectivity } from './dataAccess.js';
+import { fetchPatient, fetchPatientShell, diagSansysConnectivity } from './dataAccess.js';
 import { createSpecialty, listSpecialties, loadSpecialty } from './specialties/index.js';
 import { generateDraft, regenerateSection } from './llm/index.js';
 import { getSummary, saveSummary } from './store.js';
@@ -26,7 +26,11 @@ apiRouter.get('/diag/sansys', wrap(async (req, res) => {
 }));
 
 apiRouter.get('/patients/:dfn', wrap(async (req, res) => {
-  res.json(await fetchPatient(req.params.dfn, req.query.episodeId));
+  res.json(await fetchPatient(req.params.dfn, req.query.episodeId, { includeNoteDetails: false }));
+}));
+
+apiRouter.get('/patients/:dfn/shell', wrap(async (req, res) => {
+  res.json(await fetchPatientShell(req.params.dfn, req.query.episodeId));
 }));
 
 apiRouter.get('/specialties', (req, res) => {
@@ -44,7 +48,7 @@ apiRouter.post('/specialties', (req, res) => {
 apiRouter.post('/patients/:dfn/draft', wrap(async (req, res) => {
   const specialtyKey = req.body?.specialty || 'general';
   const specialtyConfig = loadSpecialty(specialtyKey); // unknown keys fall back to general
-  const patientData = await fetchPatient(req.params.dfn, req.body?.episodeId);
+  const patientData = await fetchPatient(req.params.dfn, req.body?.episodeId, { includeNoteDetails: true });
   const selectedIds = Array.isArray(req.body?.sectionIds) ? req.body.sectionIds : null;
   const selectedConfig = selectedIds
     ? { ...specialtyConfig, sections: specialtyConfig.sections.filter((section) => selectedIds.includes(section.id)) }
@@ -60,7 +64,7 @@ apiRouter.post('/patients/:dfn/draft/:sectionId/regenerate', wrap(async (req, re
   const specialtyConfig = loadSpecialty(specialtyKey);
   const section = specialtyConfig.sections.find((s) => s.id === req.params.sectionId);
   if (!section) return res.status(404).json({ error: `Unknown section id "${req.params.sectionId}"` });
-  const patientData = await fetchPatient(req.params.dfn, req.body?.episodeId);
+  const patientData = await fetchPatient(req.params.dfn, req.body?.episodeId, { includeNoteDetails: true });
   await addCustomEndpointData(patientData, [section], req.params.dfn);
   const { text, provider } = await regenerateSection(req.params.sectionId, patientData, specialtyConfig, req.body?.currentDraft ?? {});
   res.json({ text, provider });

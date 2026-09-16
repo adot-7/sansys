@@ -17,6 +17,7 @@ async function callChatCompletions({ baseUrl, apiKey, model, providerLabel, user
         { role: 'system', content: buildSystemPrompt() },
         { role: 'user', content: userPrompt },
       ],
+      ...(model.startsWith('gpt-5') ? { reasoning_effort: 'low' } : {}),
       ...(jsonMode ? { response_format: { type: 'json_object' } } : {}),
     }),
   });

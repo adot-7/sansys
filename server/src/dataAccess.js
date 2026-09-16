@@ -37,6 +37,11 @@ setGlobalDispatcher(new Agent({
 const DFN = 'PAT123456';
 const DUZ = '1';
 const LIMIT = 50;
+const PATIENT_CACHE_TTL_MS = 60_000;
+const shellCache = new Map();
+const patientCache = new Map();
+const shellInflight = new Map();
+const patientInflight = new Map();
 
 async function fetchWithTimeout(url, opts = {}, timeoutMs = config.sansysTimeoutMs) {
   const controller = new AbortController();
@@ -210,6 +215,37 @@ function inEpisodeWindow(value, episode) {
   return date >= episode.dateFrom && (!episode.dateTo || date <= episode.dateTo);
 }
 
+function cacheKey(dfn, episodeId = '') {
+  return `${dfn}::${episodeId || '__default__'}`;
+}
+
+function clone(value) {
+  return structuredClone(value);
+}
+
+function readCache(cache, key) {
+  const entry = cache.get(key);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    cache.delete(key);
+    return null;
+  }
+  return entry;
+}
+
+function writeCache(cache, key, value, metadata = {}) {
+  cache.set(key, {
+    value,
+    expiresAt: Date.now() + PATIENT_CACHE_TTL_MS,
+    ...metadata,
+  });
+}
+
+function remember(cache, dfn, requestedEpisodeId, value, metadata = {}) {
+  writeCache(cache, cacheKey(dfn, value.episodeId), value, metadata);
+  if (!requestedEpisodeId) writeCache(cache, cacheKey(dfn), value, metadata);
+}
+
 function chooseEpisode(episodes, requestedId, discovery) {
   const defaultId = discovery?.data?.default_visit || discovery?.default_visit || episodes[0]?.id || '';
   return episodes.find((episode) => episode.id === requestedId) || episodes.find((episode) => episode.id === defaultId) || episodes[0] || {
@@ -258,8 +294,16 @@ function flattenNoteContent(content, lines = []) {
   return lines;
 }
 
-async function fetchNotes(dfn, episode) {
+async function fetchNotes(dfn, episode, includeDetails = true) {
   const list = await fetchNoteList(dfn, episode);
+  if (!includeDetails) {
+    return {
+      notes: list.map((note) => mapNote(note)),
+      embeddedMedications: [],
+      detailsLoaded: false,
+    };
+  }
+
   const detailed = [];
   for (let i = 0; i < list.length; i += 8) {
     const batch = await Promise.all(list.slice(i, i + 8).map(async (note) => {
@@ -274,73 +318,157 @@ async function fetchNotes(dfn, episode) {
   }
   const notes = list.map((note, index) => mapNote(note, detailed[index]));
   const embeddedMedications = detailed.flatMap((detail) => detail?.data?.patient_objects?.medications || []);
-  return { notes, embeddedMedications };
+  return { notes, embeddedMedications, detailsLoaded: true };
 }
 
-export async function fetchPatient(dfn, requestedEpisodeId) {
-  dfn = dfn || DFN;
-  const discoveryRaw = await postJSON('/diagnosis/dash/list', { dfn, visit_id: '', duz: DUZ });
+async function fetchPatientShellUncached(dfn, requestedEpisodeId) {
+  const [discoveryRaw, demographicsRaw, allergiesRaw] = await Promise.all([
+    postJSON('/diagnosis/dash/list', { dfn, visit_id: '', duz: DUZ }),
+    getJSON(`/patientHome/load-demographics/${encodeURIComponent(dfn)}?userId=1`),
+    getJSON(`/allergies/dashboard-list/${encodeURIComponent(dfn)}`),
+  ]);
   const episodes = buildEpisodes(discoveryRaw);
   const episode = chooseEpisode(episodes, requestedEpisodeId, discoveryRaw);
-  // All episode-scoped calls run in parallel: the live API answers in seconds,
-  // sequential fetches would stack.
+  return {
+    dfn,
+    demographics: normalizeDemographics(demographicsRaw),
+    complaints: [],
+    diagnoses: [],
+    problems: [],
+    allergies: mapAllergies(allergiesRaw),
+    medications: [],
+    labOrders: [],
+    radOrders: [],
+    vitals: [],
+    notes: [],
+    episodes,
+    episodeId: episode.id,
+    episode,
+  };
+}
+
+export async function fetchPatientShell(dfn, requestedEpisodeId) {
+  dfn = dfn || DFN;
+  const key = cacheKey(dfn, requestedEpisodeId);
+  const cached = readCache(shellCache, key);
+  if (cached) return clone(cached.value);
+  const running = shellInflight.get(key);
+  if (running) return clone(await running);
+
+  const promise = fetchPatientShellUncached(dfn, requestedEpisodeId);
+  shellInflight.set(key, promise);
+  try {
+    const shell = await promise;
+    remember(shellCache, dfn, requestedEpisodeId, shell);
+    return clone(shell);
+  } finally {
+    shellInflight.delete(key);
+  }
+}
+
+function mergeEmbeddedMedications(patient, embeddedMedications) {
+  patient.medications = [
+    ...patient.medications,
+    ...embeddedMedications.map(mapEmbeddedMedication),
+  ].filter((medication, index, list) => list.findIndex((item) => item.medication === medication.medication && item.startDate === medication.startDate) === index);
+  return patient;
+}
+
+async function fetchPatientUncached(dfn, requestedEpisodeId, includeNoteDetails) {
+  const shell = await fetchPatientShell(dfn, requestedEpisodeId);
+  const { episode } = shell;
+  // Independent Sansys collections run in parallel. Note details are optional
+  // so the shell/data response can arrive before the expensive detail fan-out.
   const [
-    demographicsRaw,
-     notesResult,
+    notesResult,
     labsRaw,
     radRaw,
     vitalsRaw,
     problemsRaw,
-     diagnosisRaw,
+    diagnosisRaw,
     complaintsRaw,
-    allergiesRaw,
     medsRaw,
   ] = await Promise.all([
-    getJSON(`/patientHome/load-demographics/${encodeURIComponent(dfn)}?userId=1`),
-     fetchNotes(dfn, episode),
-     postJSON('/lab/list',
-       { dfn, status: '', visit_id: episode.id, from_date: '', to_date: '' }),
-     postJSON('/rad/cpoe-list',
-       { dfn, status: '', visit_id: episode.id, from_date: '', to_date: '' }),
-     fetchVitals(dfn, episode),
-     postJSON('/problems/dash-list',
-       { dfn, status: '', visit_id: episode.id }),
-     requestedEpisodeId || episodes.length ? postJSON('/diagnosis/dash/list', { dfn, visit_id: episode.id, duz: DUZ }) : Promise.resolve(discoveryRaw),
-     getJSON(`/chiefcomplaint/dash-list/${encodeURIComponent(dfn)}?status=1&admissionIen=${encodeURIComponent(episode.admissionIen)}`),
-     getJSON(`/allergies/dashboard-list/${encodeURIComponent(dfn)}`),
-     postJSON(`/med/list?dfn=${encodeURIComponent(dfn)}`,
-       { dfn, status: '', schedule_type: '', visit_id: episode.id, from_date: '', to_date: '' }),
+    fetchNotes(dfn, episode, includeNoteDetails),
+    postJSON('/lab/list',
+      { dfn, status: '', visit_id: episode.id, from_date: '', to_date: '' }),
+    postJSON('/rad/cpoe-list',
+      { dfn, status: '', visit_id: episode.id, from_date: '', to_date: '' }),
+    fetchVitals(dfn, episode),
+    postJSON('/problems/dash-list',
+      { dfn, status: '', visit_id: episode.id }),
+    postJSON('/diagnosis/dash/list', { dfn, visit_id: episode.id, duz: DUZ }),
+    getJSON(`/chiefcomplaint/dash-list/${encodeURIComponent(dfn)}?status=1&admissionIen=${encodeURIComponent(episode.admissionIen)}`),
+    postJSON(`/med/list?dfn=${encodeURIComponent(dfn)}`,
+      { dfn, status: '', schedule_type: '', visit_id: episode.id, from_date: '', to_date: '' }),
   ]);
 
-  // ---- Normalization into the frozen contract shape (see contracts.md) ----
   const patient = {
-    dfn,
-    demographics: normalizeDemographics(demographicsRaw),
+    ...shell,
     complaints: listOf(complaintsRaw, 'complaints').map(mapComplaint),
-     diagnoses: sortDiagnoses(listOf(diagnosisRaw, 'diagnoses')),
-     problems: listOf(problemsRaw, 'problems').map(mapProblem),
-    allergies: mapAllergies(allergiesRaw),
-     medications: listOf(medsRaw, 'orders').map(mapMedication),
-     labOrders: listOf(labsRaw, 'orders').map(mapLab),
-     radOrders: listOf(radRaw, 'orders').map(mapRad),
-     vitals: normalizeVitals(vitalsRaw).filter((item) => inEpisodeWindow(item.dateTime, episode)),
-     notes: notesResult.notes,
-     episodes,
-     episodeId: episode.id,
-     episode,
+    diagnoses: sortDiagnoses(listOf(diagnosisRaw, 'diagnoses')),
+    problems: listOf(problemsRaw, 'problems').map(mapProblem),
+    medications: listOf(medsRaw, 'orders').map(mapMedication),
+    labOrders: listOf(labsRaw, 'orders').map(mapLab),
+    radOrders: listOf(radRaw, 'orders').map(mapRad),
+    vitals: normalizeVitals(vitalsRaw).filter((item) => inEpisodeWindow(item.dateTime, episode)),
+    notes: notesResult.notes,
   };
-  patient.medications = [
-    ...patient.medications,
-    ...notesResult.embeddedMedications.map(mapEmbeddedMedication),
-  ].filter((medication, index, list) => list.findIndex((item) => item.medication === medication.medication && item.startDate === medication.startDate) === index);
+  mergeEmbeddedMedications(patient, notesResult.embeddedMedications);
   console.log(
     `[sansys] patient ${dfn} assembled (${patient.complaints.length} complaints, ` +
     `${patient.diagnoses.length} diagnoses, ${patient.problems.length} problems, ` +
     `${patient.allergies.items.length} allergies, ${patient.medications.length} meds, ` +
     `${patient.labOrders.length} labs, ${patient.radOrders.length} rad, ` +
-    `${patient.vitals.length} vitals, ${patient.notes.length} notes)`,
+    `${patient.vitals.length} vitals, ${patient.notes.length} notes, ` +
+    `note details ${notesResult.detailsLoaded ? 'loaded' : 'deferred'})`,
   );
-  return patient;
+  return { patient, detailsLoaded: notesResult.detailsLoaded };
+}
+
+export async function fetchPatient(dfn, requestedEpisodeId, options = {}) {
+  dfn = dfn || DFN;
+  const includeNoteDetails = options.includeNoteDetails !== false;
+  const key = cacheKey(dfn, requestedEpisodeId);
+  const cached = readCache(patientCache, key);
+  if (cached && (!includeNoteDetails || cached.detailsLoaded)) return clone(cached.value);
+
+  const running = patientInflight.get(key);
+  if (running) {
+    const result = await running;
+    if (!includeNoteDetails || result.detailsLoaded) return clone(result.patient);
+    const notesResult = await fetchNotes(dfn, result.patient.episode, true);
+    const patient = mergeEmbeddedMedications({
+      ...result.patient,
+      notes: notesResult.notes,
+    }, notesResult.embeddedMedications);
+    remember(patientCache, dfn, requestedEpisodeId, patient, { detailsLoaded: true });
+    return clone(patient);
+  }
+
+  const promise = (async () => {
+    const current = readCache(patientCache, key);
+    if (current && includeNoteDetails && !current.detailsLoaded) {
+      const notesResult = await fetchNotes(dfn, current.value.episode, true);
+      const patient = mergeEmbeddedMedications({
+        ...current.value,
+        notes: notesResult.notes,
+      }, notesResult.embeddedMedications);
+      remember(patientCache, dfn, requestedEpisodeId, patient, { detailsLoaded: true });
+      return { patient, detailsLoaded: true };
+    }
+
+    const result = await fetchPatientUncached(dfn, requestedEpisodeId, includeNoteDetails);
+    remember(patientCache, dfn, requestedEpisodeId, result.patient, { detailsLoaded: result.detailsLoaded });
+    return result;
+  })();
+  patientInflight.set(key, promise);
+  try {
+    const result = await promise;
+    return clone(result.patient);
+  } finally {
+    patientInflight.delete(key);
+  }
 }
 
 // ---- Connectivity diagnostics ----
@@ -480,6 +608,10 @@ function mapRad(r) {
 
 function mapNote(n, detail) {
   const objects = detail?.data?.patient_objects || {};
+  const compactObjects = Object.fromEntries(
+    Object.entries(objects)
+      .filter(([key, value]) => key !== 'medications' && (Array.isArray(value) ? value.length > 0 : value && typeof value === 'object' ? Object.keys(value).length > 0 : Boolean(value))),
+  );
   return {
     noteIen: str(n.note_ien),
     title: str(n.note_title),
@@ -487,7 +619,7 @@ function mapNote(n, detail) {
     status: str(n.status_name),
     author: str(n.author_name),
     content: flattenNoteContent(detail?.data?.content),
-    patientObjects: { ...objects, medications: undefined },
+    patientObjects: compactObjects,
   };
 }
 

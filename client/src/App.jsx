@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   fetchSpecialties,
   createSpecialty,
+  fetchPatientShell,
   fetchPatient,
   generateDraft,
   regenerateSection,
@@ -72,6 +73,7 @@ export default function App() {
 
   const [patient, setPatient] = useState(null);
   const [patientLoading, setPatientLoading] = useState(false);
+  const [clinicalLoading, setClinicalLoading] = useState(false);
   const [patientError, setPatientError] = useState('');
 
   const [sectionOrder, setSectionOrder] = useState([]);
@@ -97,7 +99,7 @@ export default function App() {
   // DFN or specialty has actually changed since the last load.
   const abortRef = useRef(null); // AbortController for the in-flight load
 
-  const loading = patientLoading || draftLoading;
+  const loading = patientLoading || clinicalLoading || draftLoading;
 
   useEffect(() => {
     let cancelled = false;
@@ -131,6 +133,7 @@ export default function App() {
     const signal = controller.signal;
 
     setPatientLoading(true);
+    setClinicalLoading(false);
     setPatientError('');
     setDraftError('');
     setDraftLoading(false);
@@ -146,15 +149,27 @@ export default function App() {
     setJustApproved(false);
 
     try {
-       const p = await fetchPatient(dfn, signal, requestedEpisodeId);
+      const shell = await fetchPatientShell(dfn, signal, requestedEpisodeId);
       if (signal.aborted) return;
-       setPatient(p);
-       setEpisodes(p.episodes || []);
-       setEpisodeId(p.episodeId || requestedEpisodeId || '');
-       setPatientLoading(false);
-       const activeEpisodeId = p.episodeId || requestedEpisodeId || '';
+      setPatient(shell);
+      setEpisodes(shell.episodes || []);
+      setEpisodeId(shell.episodeId || requestedEpisodeId || '');
+      setPatientLoading(false);
+      setClinicalLoading(true);
 
-       const sumRes = useExistingSummary
+      const p = await fetchPatient(dfn, signal, shell.episodeId || requestedEpisodeId);
+      if (signal.aborted) return;
+      setPatient(p);
+      setEpisodes(p.episodes || []);
+      setEpisodeId(p.episodeId || requestedEpisodeId || '');
+      setClinicalLoading(false);
+      const activeEpisodeId = p.episodeId || requestedEpisodeId || '';
+      const initialSectionIds = Array.isArray(sectionIds) ? sectionIds : [];
+      setSectionOrder(initialSectionIds);
+      setActiveSection(initialSectionIds[0] || '');
+      setDraftLoading(true);
+
+      const sumRes = useExistingSummary
          ? await fetchSummary(dfn, signal, activeEpisodeId).catch((err) => {
              if (err?.name === 'AbortError') throw err;
              return null;
@@ -172,11 +187,11 @@ export default function App() {
         setDrafts({});
         setEdits(existing.sections);
         setActiveSection(ids[0] || '');
+        setDraftLoading(false);
         return;
       }
 
       // No existing approved summary — auto-generate the first draft.
-      setDraftLoading(true);
       try {
         const d = await generateDraft(dfn, spec, signal, sectionIds, activeEpisodeId);
         if (signal.aborted) return;
@@ -195,7 +210,8 @@ export default function App() {
     } catch (err) {
       if (err?.name === 'AbortError') return;
       setPatientLoading(false);
-      setPatient(null);
+      setClinicalLoading(false);
+      setDraftLoading(false);
       setPatientError(err.message || 'Patient data unavailable');
       console.error('[App] patient fetch failed:', err);
     }
@@ -372,48 +388,54 @@ export default function App() {
           onSelect={setActiveSection}
           requiredIds={requiredManualIds}
           missingIds={missingRequired}
-          loading={draftLoading || patientLoading}
+          loading={patientLoading || clinicalLoading}
           readOnly={readOnly}
         />
 
         <div className="content">
-          {patientLoading || draftLoading ? (
-            <div className="panel-note">Loading patient data…</div>
-          ) : draftError ? (
-            <div className="panel-note panel-note-error">
-              Draft generation failed — {draftError}
-              <button type="button" className="btn" onClick={() => loadPatient(dfnInput, specialty)}>
-                Retry
-              </button>
-            </div>
+          {patientLoading ? (
+            <div className="panel-note">Loading patient shell…</div>
+          ) : clinicalLoading ? (
+            <div className="panel-note">Loading clinical data… the patient shell is ready.</div>
           ) : !activeSection ? (
             <div className="panel-note">No section selected.</div>
           ) : (
-            <div className="section-panels">
-              <DraftPanel
-                title={(sections.find((s) => s.id === activeSection) || {}).title || activeSection}
-                text={activeDraft}
-                onRegenerate={() => handleRegenerate(activeSection)}
-                regenLoading={activeRegen.loading}
-                regenError={activeRegen.error}
-                readOnly={readOnly}
-              />
-              <details className="source-data-panel">
-                <summary>Source data used for this section</summary>
-                {activeSources.length ? (
-                  <pre className="source-data-pre">{JSON.stringify(sourceData ?? null, null, 2)}</pre>
-                ) : (
-                  <div className="panel-plain">No structured source. This section is intended for doctor-entered text.</div>
-                )}
-              </details>
-              <EditPanel
-                sectionId={activeSection}
-                value={activeEdit !== undefined ? activeEdit : activeDraft}
-                onChange={handleEdit}
-                readOnly={readOnly}
-                edited={activeEdit !== undefined && activeEdit !== activeDraft}
-              />
-            </div>
+            <>
+              {draftError && (
+                <div className="panel-note panel-note-error">
+                  Draft generation failed — {draftError}
+                  <button type="button" className="btn" onClick={() => loadPatient(dfnInput, specialty)}>
+                    Retry
+                  </button>
+                </div>
+              )}
+              <div className="section-panels">
+                <DraftPanel
+                  title={(sections.find((s) => s.id === activeSection) || {}).title || activeSection}
+                  text={activeDraft}
+                  onRegenerate={() => handleRegenerate(activeSection)}
+                  regenLoading={activeRegen.loading}
+                  regenError={activeRegen.error}
+                  draftLoading={draftLoading}
+                  readOnly={readOnly}
+                />
+                <details className="source-data-panel">
+                  <summary>Source data used for this section (before AI)</summary>
+                  {activeSources.length ? (
+                    <pre className="source-data-pre">{JSON.stringify(sourceData ?? null, null, 2)}</pre>
+                  ) : (
+                    <div className="panel-plain">No structured source. This section is intended for doctor-entered text.</div>
+                  )}
+                </details>
+                <EditPanel
+                  sectionId={activeSection}
+                  value={activeEdit !== undefined ? activeEdit : activeDraft}
+                  onChange={handleEdit}
+                  readOnly={readOnly}
+                  edited={activeEdit !== undefined && activeEdit !== activeDraft}
+                />
+              </div>
+            </>
           )}
         </div>
       </div>

@@ -47,6 +47,7 @@ registerProvider('test', {
 const jsonRes = (body) => ({ ok: true, status: 200, json: async () => body });
 let vitalsCalls = 0;
 let problemsNetworkFails = 0;
+let clinicalNoteDetailCalls = 0;
 globalThis.fetch = async (input) => {
   const url = String(input);
   if (url.includes('/vitals/dash/load/')) {
@@ -58,6 +59,7 @@ globalThis.fetch = async (input) => {
     );
   }
   if (url.includes('/clinical-notes/view/')) {
+    clinicalNoteDetailCalls += 1;
     return jsonRes({ success: true, data: { content: [], patient_objects: {} } });
   }
   if (url.includes('/problems/dash-list')) {
@@ -104,6 +106,17 @@ test('GET /api/patients/:dfn returns the normalized patient from live-shaped res
   assert.equal(vitalsCalls, 2);
   // the injected ECONNRESET on problems was retried, not fatal
   assert.equal(problemsNetworkFails, 1);
+  assert.equal(clinicalNoteDetailCalls, 0, 'patient data load should defer note details');
+});
+
+test('patient shell is available before full clinical data and note details', async () => {
+  const res = await GET(`/api/patients/${DFN}/shell`);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.dfn, DFN);
+  assert.ok(Array.isArray(res.body.episodes));
+  assert.deepEqual(res.body.notes, []);
+  assert.deepEqual(res.body.diagnoses, []);
+  assert.equal(clinicalNoteDetailCalls, 0);
 });
 
 for (const spec of listSpecialties()) {
@@ -123,6 +136,17 @@ for (const spec of listSpecialties()) {
     }
   });
 }
+
+test('draft loads deferred note details once and reuses the patient cache', async () => {
+  const before = clinicalNoteDetailCalls;
+  const first = await POST(`/api/patients/${DFN}/draft`, { specialty: 'general', episodeId: 'test-episode' });
+  assert.equal(first.status, 200);
+  assert.ok(clinicalNoteDetailCalls > before);
+  const after = clinicalNoteDetailCalls;
+  const second = await POST(`/api/patients/${DFN}/draft`, { specialty: 'general', episodeId: 'test-episode' });
+  assert.equal(second.status, 200);
+  assert.equal(clinicalNoteDetailCalls, after);
+});
 
 test('draft with unknown specialty key falls back to general', async () => {
   const res = await POST(`/api/patients/${DFN}/draft`, { specialty: 'cardiology-does-not-exist' });

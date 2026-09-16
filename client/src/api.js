@@ -46,6 +46,11 @@ export function fetchPatient(dfn, signal, episodeId) {
   return request('/patients/' + encodeURIComponent(dfn) + query, signal ? { signal } : {});
 }
 
+export function fetchPatientShell(dfn, signal, episodeId) {
+  const query = episodeId ? '?episodeId=' + encodeURIComponent(episodeId) : '';
+  return request('/patients/' + encodeURIComponent(dfn) + '/shell' + query, signal ? { signal } : {});
+}
+
 export function generateDraft(dfn, specialty, signal, sectionIds, episodeId) {
   return post('/patients/' + encodeURIComponent(dfn) + '/draft', {
     specialty,
