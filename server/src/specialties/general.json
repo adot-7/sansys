@@ -23,7 +23,7 @@
       "id": "presenting-complaints",
       "title": "Presenting Complaints",
       "source": "complaints",
-      "promptHint": "Only complaints of type 'Chief Complaint', one per line, with dates. Do not include associated complaints here.",
+      "promptHint": "Summarize distinct complaints of type 'Chief Complaint' only. Collapse repeated rows with the same complaint into one clean line, adding the recorded date or date range when useful. Do not include associated complaints or dump raw rows. Return one item per line; do not leave an escaped-newline marker visible in the text.",
       "requiredManual": false,
       "manualEntry": false
     },
@@ -31,7 +31,7 @@
       "id": "history-present-illness",
       "title": "History of Present Illness",
       "source": "complaints",
-      "promptHint": "Weave the associated complaints and their remarks into a short narrative around the chief complaints. There is no dedicated HPI field in the source data; this is a proxy and must be reviewed by the doctor. Do not invent detail beyond the given remarks.",
+      "promptHint": "Write a concise chronological History of Present Illness using the chief complaints plus associated complaints and their recorded remarks. Group repeated symptoms rather than listing every row, and make the narrative useful to a doctor reviewing the whole episode. There is no dedicated HPI field, so use only this recorded proxy; do not invent detail or replace the narrative with a disclaimer. Add at most one short review caveat at the end if needed.",
       "requiredManual": false,
       "manualEntry": false
     },
@@ -39,7 +39,7 @@
       "id": "past-medical-history",
       "title": "Past Medical History",
       "source": "problems",
-      "promptHint": "Treat every problem not obviously tied to the current admission diagnosis as past history (comorbidities especially). This heuristic is imperfect; flag for doctor review. Do not invent conditions.",
+      "promptHint": "Summarize the distinct recorded problems as a concise Past Medical History, including status, onset, and comorbidity when present. Treat problems not obviously tied to the current admission diagnosis as past history, but do not invent or reclassify conditions. Write the useful list first; add at most one short review caveat at the end if needed.",
       "requiredManual": false,
       "manualEntry": false
     },

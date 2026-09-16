@@ -37,7 +37,7 @@ export default function DraftPanel({
         </button>
       </div>
       {draftLoading ? (
-        <div className="panel-body panel-plain">Generating one full AI draft from the loaded clinical data…</div>
+        <div className="panel-body panel-plain">Generating AI draft from the loaded clinical data…</div>
       ) : regenLoading ? (
         <div className="panel-body panel-plain">Generating draft for this section…</div>
       ) : regenError ? (

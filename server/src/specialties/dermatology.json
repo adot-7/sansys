@@ -23,7 +23,7 @@
       "id": "presenting-complaints",
       "title": "Presenting Complaints",
       "source": "complaints",
-      "promptHint": "Only complaints of type 'Chief Complaint', one per line, with dates. Skin-related complaints should be phrased using the recorded wording.",
+      "promptHint": "Summarize distinct complaints of type 'Chief Complaint' only. Collapse repeated rows with the same complaint into one clean line, adding the recorded date or date range when useful. Preserve the recorded skin-related wording; do not include associated complaints or dump raw rows. Return one item per line; do not leave an escaped-newline marker visible in the text.",
       "requiredManual": false,
       "manualEntry": false
     },
@@ -31,7 +31,7 @@
       "id": "history-present-illness",
       "title": "History of Present Illness",
       "source": "complaints",
-      "promptHint": "Weave the associated complaints and remarks into a narrative emphasizing the evolution of skin findings: onset, distribution, itching, and treatments tried. Proxy for HPI; doctor review required. Do not invent detail beyond the recorded remarks.",
+      "promptHint": "Write a concise chronological History of Present Illness using the chief complaints plus associated complaints and recorded remarks, emphasizing the documented evolution of skin findings, onset, distribution, itching, and treatments tried. Group repeated symptoms rather than listing every row. Use only this recorded proxy, do not invent detail, and do not replace the narrative with a disclaimer. Add at most one short review caveat at the end if needed.",
       "requiredManual": false,
       "manualEntry": false
     },
@@ -39,7 +39,7 @@
       "id": "past-medical-history",
       "title": "Past Medical History",
       "source": "problems",
-      "promptHint": "Treat every problem not obviously tied to the current admission diagnosis as past history; note prior dermatological conditions (e.g. eczema) explicitly. Heuristic is imperfect; flag for doctor review.",
+      "promptHint": "Summarize the distinct recorded problems as a concise Past Medical History, including status, onset, comorbidity, and prior dermatological conditions such as eczema when present. Treat problems not obviously tied to the current admission diagnosis as past history, but do not invent or reclassify conditions. Write the useful list first; add at most one short review caveat at the end if needed.",
       "requiredManual": false,
       "manualEntry": false
     },

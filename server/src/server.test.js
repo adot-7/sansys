@@ -16,6 +16,7 @@ const { apiRouter } = await import('./routes.js');
 const { listSpecialties, loadSpecialty } = await import('./specialties/index.js');
 const { initStore } = await import('./store.js');
 const { registerProvider } = await import('./llm/index.js');
+const { buildDraftUserPrompt } = await import('./llm/prompts.js');
 
 initStore();
 const app = express();
@@ -30,7 +31,7 @@ registerProvider('test', {
   async generateDraft(patientData, specialtyConfig) {
     const sections = {};
     for (const s of specialtyConfig.sections) {
-      sections[s.id] = s.source === null ? '' : `draft-${s.id}`;
+      sections[s.id] = s.source === null ? '' : s.id === 'presenting-complaints' ? 'first line\\nsecond line' : `draft-${s.id}`;
     }
     return { sections, provider: 'test' };
   },
@@ -117,6 +118,31 @@ test('patient shell is available before full clinical data and note details', as
   assert.deepEqual(res.body.notes, []);
   assert.deepEqual(res.body.diagnoses, []);
   assert.equal(clinicalNoteDetailCalls, 0);
+});
+
+test('complaint prompt groups repeated records by type and name', () => {
+  const prompt = buildDraftUserPrompt(
+    {
+      complaints: [
+        { name: ' ABDOMINAL PAIN ', type: 'Chief Complaint', date: '10 JUL 2026', remark: '' },
+        { name: 'ABDOMINAL PAIN', type: 'Chief Complaint', date: '09 JUL 2026', remark: '' },
+        { name: 'Nausea', type: 'Associated Complaint', date: '09 JUL 2026', remark: 'Two days' },
+      ],
+    },
+    {
+      label: 'General',
+      sections: [{ id: 'presenting-complaints', title: 'Presenting Complaints', source: 'complaints', promptHint: '' }],
+    },
+  );
+  assert.equal((prompt.match(/"name": "ABDOMINAL PAIN"/g) || []).length, 1);
+  assert.match(prompt, /recordedDates/);
+  assert.match(prompt, /recordedRemarks/);
+});
+
+test('draft text converts escaped line breaks to rendered line breaks', async () => {
+  const res = await POST(`/api/patients/${DFN}/draft`, { specialty: 'general', episodeId: 'line-break-test' });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.sections['presenting-complaints'], 'first line\nsecond line');
 });
 
 for (const spec of listSpecialties()) {

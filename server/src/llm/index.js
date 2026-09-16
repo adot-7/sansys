@@ -46,10 +46,30 @@ export function getProvider() {
   });
 }
 
+function normalizeGeneratedText(value) {
+  return String(value ?? '')
+    .replace(/\\r\\n/g, '\n')
+    .replace(/\\n/g, '\n')
+    .replace(/\\r/g, '\r')
+    .replace(/\\t/g, '\t')
+    .replace(/\r\n?/g, '\n')
+    .trim();
+}
+
+function normalizeDraft(result) {
+  return {
+    ...result,
+    sections: Object.fromEntries(
+      Object.entries(result?.sections || {}).map(([id, text]) => [id, normalizeGeneratedText(text)]),
+    ),
+  };
+}
+
 export async function generateDraft(patientData, specialtyConfig) {
-  return getProvider().generateDraft(patientData, specialtyConfig);
+  return normalizeDraft(await getProvider().generateDraft(patientData, specialtyConfig));
 }
 
 export async function regenerateSection(sectionId, patientData, specialtyConfig, existingDraft) {
-  return getProvider().regenerateSection(sectionId, patientData, specialtyConfig, existingDraft);
+  const result = await getProvider().regenerateSection(sectionId, patientData, specialtyConfig, existingDraft);
+  return { ...result, text: normalizeGeneratedText(result?.text) };
 }

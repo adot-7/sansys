@@ -7,8 +7,8 @@ const ANTI_FABRICATION_RULES = [
   'If the data for a section is thin or partial, state plainly what the data shows (e.g. "Only vitals are recorded; no physical examination findings are available."). Do not fill gaps with plausible-sounding content.',
   'Use the exact clinical wording recorded in the data for diagnoses, allergies, and medication names; do not reclassify or add qualifiers that are not recorded.',
   'Medication facts belong in medication sections. If a note mentions a medication, use the normalized medications data for medication sections and do not duplicate medication lists in narrative sections.',
-  'When a section is a heuristic proxy (History of Present Illness, Past Medical History), flag within the text that it is derived from limited data and requires doctor review.',
-  'Output STRICT JSON only: an object keyed by section id, each value a single string (the full text for that section). No markdown, no commentary, no keys beyond the requested section ids.',
+  'For sections built from proxy or indirect data, write the useful clinical synthesis first. If a caveat is needed, add at most one short sentence at the end stating that the doctor should verify it. Never use a generic disclaimer as the section content or lead with it.',
+  'Output STRICT JSON only: an object keyed by section id, each value a single plain-text string (the full text for that section). Simple hyphen-prefixed lines are allowed for lists; do not use headings, code fences, commentary, or keys beyond the requested section ids.',
 ].join('\n');
 
 export function buildSystemPrompt() {
@@ -25,12 +25,38 @@ function compact(value) {
   return JSON.stringify(value ?? null);
 }
 
+function compactComplaintSource(value) {
+  const groups = new Map();
+  for (const item of Array.isArray(value) ? value : []) {
+    const name = String(item?.name ?? '').replace(/\s+/g, ' ').trim();
+    if (!name) continue;
+    const type = item?.type === 'Associated Complaint' ? 'Associated Complaint' : 'Chief Complaint';
+    const key = `${type}\u0000${name.toLocaleLowerCase()}`;
+    const group = groups.get(key) || { name, type, recordedDates: [], recordedRemarks: [] };
+    if (item?.date && !group.recordedDates.includes(item.date)) group.recordedDates.push(item.date);
+    if (item?.remark && !group.recordedRemarks.includes(item.remark)) group.recordedRemarks.push(item.remark);
+    groups.set(key, group);
+  }
+  return [...groups.values()].map((group) => ({
+    name: group.name,
+    type: group.type,
+    recordedDates: group.recordedDates,
+    ...(group.recordedRemarks.length ? { recordedRemarks: group.recordedRemarks } : {}),
+  }));
+}
+
+function sourceValue(source, patientData) {
+  return source === 'complaints'
+    ? compactComplaintSource(patientData[source])
+    : patientData[source] ?? null;
+}
+
 // Full-draft request: one JSON object keyed by section id. Only sections with
 // a non-null `source` are included; sourceless sections never reach the model.
 export function buildDraftUserPrompt(patientData, specialtyConfig) {
   const sections = specialtyConfig.sections.filter((s) => s.source !== null || Array.isArray(s.sources));
   const sourceNames = [...new Set(sections.flatMap((s) => s.sources || [s.source]).filter(Boolean))];
-  const sourceData = Object.fromEntries(sourceNames.map((source) => [source, patientData[source] ?? null]));
+  const sourceData = Object.fromEntries(sourceNames.map((source) => [source, sourceValue(source, patientData)]));
   const sectionSpecs = sections.map((s) => ({
     id: s.id,
     title: s.title,
@@ -67,7 +93,7 @@ export function buildRegenerateUserPrompt(sectionId, patientData, specialtyConfi
         id: section.id,
         title: section.title,
         promptHint: section.promptHint,
-        data: (section.sources || [section.source]).reduce((all, source) => ({ ...all, [source]: patientData[source] ?? null }), {}),
+        data: (section.sources || [section.source]).reduce((all, source) => ({ ...all, [source]: sourceValue(source, patientData) }), {}),
       },
       null,
       2,

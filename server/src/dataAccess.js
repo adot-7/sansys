@@ -405,7 +405,7 @@ async function fetchPatientUncached(dfn, requestedEpisodeId, includeNoteDetails)
 
   const patient = {
     ...shell,
-    complaints: listOf(complaintsRaw, 'complaints').map(mapComplaint),
+    complaints: mapUniqueComplaints(listOf(complaintsRaw, 'complaints')),
     diagnoses: sortDiagnoses(listOf(diagnosisRaw, 'diagnoses')),
     problems: listOf(problemsRaw, 'problems').map(mapProblem),
     medications: listOf(medsRaw, 'orders').map(mapMedication),
@@ -534,13 +534,31 @@ function normalizeDemographics(raw) {
   };
 }
 
+function cleanText(value) {
+  return str(value).replace(/\s+/g, ' ').trim();
+}
+
 function mapComplaint(c) {
+  const type = cleanText(c.complaint_type);
   return {
-    name: str(c.complaint_name),
-    type: c.complaint_type === 'Associated Complaint' ? 'Associated Complaint' : 'Chief Complaint',
-    remark: str(c.remark),
-    date: str(c.date),
+    name: cleanText(c.complaint_name),
+    type: /^associated complaint$/i.test(type) ? 'Associated Complaint' : 'Chief Complaint',
+    remark: cleanText(c.remark),
+    date: cleanText(c.date),
   };
+}
+
+function mapUniqueComplaints(list) {
+  const seen = new Set();
+  return list
+    .map(mapComplaint)
+    .filter((complaint) => {
+      if (!complaint.name) return false;
+      const key = JSON.stringify(complaint);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
 }
 
 function sortDiagnoses(list) {
