@@ -35,8 +35,8 @@ setGlobalDispatcher(new Agent({
 }));
 
 const DFN = 'PAT123456';
-const DUZ = '1';
-const LIMIT = 50;
+const DUZ = 1;
+const LIMIT = 25;
 const PATIENT_CACHE_TTL_MS = 60_000;
 const shellCache = new Map();
 const patientCache = new Map();
@@ -391,16 +391,16 @@ async function fetchPatientUncached(dfn, requestedEpisodeId, includeNoteDetails)
   ] = await Promise.all([
     fetchNotes(dfn, episode, includeNoteDetails),
     postJSON('/lab/list',
-      { dfn, status: '', visit_id: episode.id, from_date: '', to_date: '' }),
+      { dfn, status: '0', visit_id: episode.id, from_date: '', to_date: '' }),
     postJSON('/rad/cpoe-list',
-      { dfn, status: '', visit_id: episode.id, from_date: '', to_date: '' }),
+      { dfn, status: '0', visit_id: episode.id, from_date: '', to_date: '' }),
     fetchVitals(dfn, episode),
     postJSON('/problems/dash-list',
       { dfn, status: '', visit_id: episode.id }),
     postJSON('/diagnosis/dash/list', { dfn, visit_id: episode.id, duz: DUZ }),
     getJSON(`/chiefcomplaint/dash-list/${encodeURIComponent(dfn)}?status=1&admissionIen=${encodeURIComponent(episode.admissionIen)}`),
     postJSON(`/med/list?dfn=${encodeURIComponent(dfn)}`,
-      { dfn, status: '', schedule_type: '', visit_id: episode.id, from_date: '', to_date: '' }),
+      { dfn, status: '0', schedule_type: '0', visit_id: episode.id, from_date: '', to_date: '' }),
   ]);
 
   const patient = {
@@ -575,11 +575,12 @@ function sortDiagnoses(list) {
 }
 
 function mapProblem(p) {
+  const comorbidity = p.comorbidity;
   return {
     problem: str(p.problem),
     status: str(p.status),
     dateOnset: str(p.dateOnset),
-    comorbidity: p.comorbidity === true || p.comorbidity === 'true',
+    comorbidity: comorbidity === true || comorbidity === 1 || ['true', '1', 'yes', 'y'].includes(str(comorbidity).toLowerCase()),
   };
 }
 
@@ -652,9 +653,9 @@ function mapEmbeddedMedication(m) {
 }
 
 function normalizeVitals(raw) {
-  // Measurements can arrive as an array [{ name, value, is_abnormal }] or, as
-  // the live API returns, an object keyed by vital name whose values carry
-  // { value, unit, bgColor, ... } (bgColor present ~ abnormal).
+  // Measurements can arrive as an array [{ name, value, is_abnormal }] or as
+  // an object keyed by vital name. The upstream uses either is_abnormal or
+  // bgColor to indicate an abnormal reading.
   return listOf(raw, 'vitals')
     .map((v) => {
       let ms = v.measurements ?? [];
@@ -662,7 +663,7 @@ function normalizeVitals(raw) {
         ms = Object.entries(ms).map(([name, m]) => ({
           name,
           value: m?.value,
-          is_abnormal: m?.bgColor != null,
+          is_abnormal: m?.is_abnormal ?? m?.isAbnormal ?? m?.bgColor != null,
         }));
       }
       return {
@@ -672,7 +673,7 @@ function normalizeVitals(raw) {
           .map((m) => ({
             name: str(m.name),
             value: str(m.value),
-            isAbnormal: m.is_abnormal === true || m.is_abnormal === 'true',
+            isAbnormal: m.is_abnormal === true || m.is_abnormal === 1 || ['true', '1', 'yes', 'y'].includes(str(m.is_abnormal).toLowerCase()),
           })),
       };
     })
