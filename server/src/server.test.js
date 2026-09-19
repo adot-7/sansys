@@ -17,6 +17,7 @@ const { listSpecialties, loadSpecialty } = await import('./specialties/index.js'
 const { initStore } = await import('./store.js');
 const { registerProvider } = await import('./llm/index.js');
 const { buildDraftUserPrompt } = await import('./llm/prompts.js');
+const { filterProblemsForEpisode } = await import('./dataAccess.js');
 
 initStore();
 const app = express();
@@ -137,6 +138,16 @@ test('complaint prompt groups repeated records by type and name', () => {
   assert.equal((prompt.match(/"name": "ABDOMINAL PAIN"/g) || []).length, 1);
   assert.match(prompt, /recordedDates/);
   assert.match(prompt, /recordedRemarks/);
+});
+
+test('future problem records are excluded from an older episode', () => {
+  const problems = filterProblemsForEpisode([
+    { problem: 'Recorded during episode', status: 'ACTIVE', dateEntered: '09 JUL 2026', dateOnset: '09 JUL 2026', comorbidity: '1' },
+    { problem: 'Recorded after episode', status: 'ACTIVE', dateEntered: '03 AUG 2026', dateOnset: '03 AUG 2026', comorbidity: '0' },
+    { problem: 'Undated longstanding history', status: 'ACTIVE', dateOnset: '2015-01-01', comorbidity: '1' },
+  ], { dateFrom: '2025-05-25', dateTo: '2026-07-22' });
+  assert.deepEqual(problems.map((problem) => problem.problem), ['Recorded during episode', 'Undated longstanding history']);
+  assert.equal(problems[0].comorbidity, true);
 });
 
 test('draft text converts escaped line breaks to rendered line breaks', async () => {

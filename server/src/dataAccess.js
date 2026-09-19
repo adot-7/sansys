@@ -407,7 +407,7 @@ async function fetchPatientUncached(dfn, requestedEpisodeId, includeNoteDetails)
     ...shell,
     complaints: mapUniqueComplaints(listOf(complaintsRaw, 'complaints')),
     diagnoses: sortDiagnoses(listOf(diagnosisRaw, 'diagnoses')),
-    problems: listOf(problemsRaw, 'problems').map(mapProblem),
+    problems: filterProblemsForEpisode(listOf(problemsRaw, 'problems'), episode),
     medications: listOf(medsRaw, 'orders').map(mapMedication),
     labOrders: listOf(labsRaw, 'orders').map(mapLab),
     radOrders: listOf(radRaw, 'orders').map(mapRad),
@@ -572,6 +572,17 @@ function sortDiagnoses(list) {
     type: str(d.type),
     dateEntered: str(d.dateEntered),
   }));
+}
+
+export function filterProblemsForEpisode(list, episode) {
+  return list
+    .filter((problem) => {
+      const dateEntered = dateStr(problem.dateEntered);
+      // Undated problem records may be longstanding comorbidities; retain them
+      // rather than dropping valid history when the upstream omits this field.
+      return !dateEntered || inEpisodeWindow(dateEntered, episode);
+    })
+    .map(mapProblem);
 }
 
 function mapProblem(p) {
