@@ -542,6 +542,15 @@ textarea {
   color: #333;
 }
 
+.source-verification-note {
+  margin-bottom: 6px;
+  padding: 4px 6px;
+  border: 1px solid #d8c58c;
+  background: #fff9df;
+  color: #665522;
+  font-size: 11px;
+}
+
 .draft-panel-readonly {
   border-color: var(--border);
 }

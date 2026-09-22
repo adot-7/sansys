@@ -17,7 +17,7 @@ const { listSpecialties, loadSpecialty } = await import('./specialties/index.js'
 const { initStore } = await import('./store.js');
 const { registerProvider } = await import('./llm/index.js');
 const { buildDraftUserPrompt } = await import('./llm/prompts.js');
-const { filterProblemsForEpisode } = await import('./dataAccess.js');
+const { filterProblemsForEpisode, mergeExtractedFacts } = await import('./dataAccess.js');
 const { formatSectionText } = await import('./llm/format.js');
 
 initStore();
@@ -72,7 +72,10 @@ globalThis.fetch = async (input, options = {}) => {
       data: {
         content: [],
         patient_objects: {
-          medications: [{ medication_name: 'NOTE-ONLY INJECTION', entry_datetime: '2026-08-02', status: 'ACTIVE', schedule: 'STAT' }],
+          medications: [
+            { medication_name: 'NOTE-ONLY TABLET', status: 'ACTIVE', schedule: 'NOW', route: 'ORAL' },
+            { medication_name: 'NOTE-ONLY INJECTION', status: 'ACTIVE', schedule: 'STAT', route: 'IV' },
+          ],
         },
       },
     });
@@ -156,6 +159,7 @@ test('complaint prompt groups repeated records by type and name', () => {
   assert.equal((prompt.match(/"name": "ABDOMINAL PAIN"/g) || []).length, 1);
   assert.match(prompt, /recordedDates/);
   assert.match(prompt, /recordedRemarks/);
+  assert.match(prompt, /extractedFacts/);
 });
 
 test('future problem records are excluded from an older episode', () => {
@@ -174,6 +178,11 @@ test('medication formatting exposes schedule and dates without status', () => {
   });
   assert.equal(text, '- Tablet A; schedule: Not Specified (type: R); start: 2026-08-01; stop: ongoing');
   assert.equal(text.includes('ACTIVE'), false);
+
+  const noteText = formatSectionText('current-medication', '', {
+    activeMedications: [{ medication: 'Note Tablet', schedule: 'NOW', route: 'ORAL', needsVerification: true, startDate: '', stopDate: '' }],
+  });
+  assert.match(noteText, /source: clinical note; verify order/);
 });
 
 test('empty advice sections receive concise diagnosis-grounded drafts', () => {
@@ -182,23 +191,56 @@ test('empty advice sections receive concise diagnosis-grounded drafts', () => {
   assert.match(formatSectionText('follow-up-advice', '', patient), /Recorded diagnosis/);
 });
 
+test('model-extracted note facts require valid note provenance before sectioning', () => {
+  const patient = {
+    notes: [{ provenance: [{ sourceType: 'clinical-note', noteIen: 'N-1' }] }],
+    medications: [],
+    activeMedications: [],
+    dischargeMedications: [],
+  };
+  const reconciled = mergeExtractedFacts(patient, {
+    medications: [
+      {
+        medication: 'FREE TEXT TABLET',
+        status: 'ACTIVE',
+        route: 'ORAL',
+        provenance: [{ sourceType: 'clinical-note', noteIen: 'N-1', path: 'data.content' }],
+      },
+      {
+        medication: 'UNSUPPORTED FACT',
+        status: 'ACTIVE',
+        provenance: [{ sourceType: 'clinical-note', noteIen: 'NOT-A-REAL-NOTE', path: 'data.content' }],
+      },
+    ],
+  });
+  assert.equal(reconciled.activeMedications.map((item) => item.medication).join(','), 'FREE TEXT TABLET');
+  assert.equal(reconciled.dischargeMedications[0].needsVerification, true);
+  assert.equal(reconciled.medications.some((item) => item.medication === 'UNSUPPORTED FACT'), false);
+});
+
 test('draft text converts escaped line breaks to rendered line breaks', async () => {
   const res = await POST(`/api/patients/${DFN}/draft`, { specialty: 'general', episodeId: 'line-break-test' });
   assert.equal(res.status, 200);
   assert.equal(res.body.sections['history-present-illness'], 'first line\nsecond line');
   assert.match(res.body.sections['presenting-complaints'], /\n/);
   assert.ok(res.body.sourceData && res.body.sourceData.notes);
+  assert.ok(res.body.sourceDataBeforeReconciliation && res.body.sourceDataBeforeReconciliation.notes);
 });
 
-test('note-embedded medications do not enter canonical episode medication data', async () => {
+test('note-embedded medications are reconciled with provenance and discharge filtering', async () => {
   const res = await POST(`/api/patients/${DFN}/draft`, { specialty: 'general', episodeId: 'empty-medication-episode' });
   assert.equal(res.status, 200);
   assert.ok(res.body.sourceData && Array.isArray(res.body.sourceData.medications));
-  assert.equal(res.body.sourceData.medications.length, 0);
-  assert.equal(res.body.sourceData.activeMedications.length, 0);
-  assert.equal(res.body.sourceData.dischargeMedications.length, 0);
-  assert.equal(res.body.sourceData.medications.some((item) => item.medication === 'NOTE-ONLY INJECTION'), false);
-  assert.equal(res.body.sourceData.activeMedications.some((item) => item.medication === 'NOTE-ONLY INJECTION'), false);
+  const tablet = res.body.sourceData.medications.find((item) => item.medication === 'NOTE-ONLY TABLET');
+  const injection = res.body.sourceData.medications.find((item) => item.medication === 'NOTE-ONLY INJECTION');
+  assert.ok(tablet);
+  assert.ok(injection);
+  assert.equal(tablet.needsVerification, true);
+  assert.equal(tablet.provenance[0].sourceType, 'clinical-note');
+  assert.ok(res.body.sourceData.activeMedications.some((item) => item.medication === 'NOTE-ONLY TABLET'));
+  assert.ok(res.body.sourceData.activeMedications.some((item) => item.medication === 'NOTE-ONLY INJECTION'));
+  assert.ok(res.body.sourceData.dischargeMedications.some((item) => item.medication === 'NOTE-ONLY TABLET'));
+  assert.equal(res.body.sourceData.dischargeMedications.some((item) => item.medication === injection.medication), false);
 });
 
 for (const spec of listSpecialties()) {

@@ -80,9 +80,11 @@ function formatMedications(medications, emptyText) {
   return listText(medications || [], emptyText, (item) => [
     clean(item.medication),
     formatMedicationSchedule(item),
+    item.route ? `route: ${clean(item.route)}` : '',
     `start: ${clean(item.startDate) || 'not recorded'}`,
     `stop: ${clean(item.stopDate) || 'ongoing'}`,
-  ].join('; '));
+    item.needsVerification ? 'source: clinical note; verify order' : '',
+  ].filter(Boolean).join('; '));
 }
 
 function formatMedicationSchedule(item) {

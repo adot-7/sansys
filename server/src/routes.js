@@ -55,9 +55,16 @@ apiRouter.post('/patients/:dfn/draft', wrap(async (req, res) => {
     ? { ...specialtyConfig, sections: specialtyConfig.sections.filter((section) => selectedIds.includes(section.id)) }
     : specialtyConfig;
   await addCustomEndpointData(patientData, selectedConfig.sections, req.params.dfn);
-  const { sections, provider } = await generateDraft(patientData, selectedConfig);
+  const sourceDataBeforeReconciliation = buildSourceData(patientData, selectedConfig);
+  const { sections, provider, patientData: reconciledPatientData } = await generateDraft(patientData, selectedConfig);
   for (const section of selectedConfig.sections) if (!(section.id in sections)) sections[section.id] = '';
-  res.json({ specialty: specialtyConfig.key, sections, sourceData: buildSourceData(patientData, selectedConfig), provider });
+  res.json({
+    specialty: specialtyConfig.key,
+    sections,
+    sourceData: buildSourceData(reconciledPatientData || patientData, selectedConfig),
+    sourceDataBeforeReconciliation,
+    provider,
+  });
 }));
 
 apiRouter.post('/patients/:dfn/draft/:sectionId/regenerate', wrap(async (req, res) => {
@@ -67,8 +74,20 @@ apiRouter.post('/patients/:dfn/draft/:sectionId/regenerate', wrap(async (req, re
   if (!section) return res.status(404).json({ error: `Unknown section id "${req.params.sectionId}"` });
   const patientData = await fetchPatient(req.params.dfn, req.body?.episodeId, { includeNoteDetails: true });
   await addCustomEndpointData(patientData, [section], req.params.dfn);
-  const { text, provider } = await regenerateSection(req.params.sectionId, patientData, specialtyConfig, req.body?.currentDraft ?? {});
-  res.json({ text, sourceData: buildSourceData(patientData, { ...specialtyConfig, sections: [section] }), provider });
+  const selectedConfig = { ...specialtyConfig, sections: [section] };
+  const sourceDataBeforeReconciliation = buildSourceData(patientData, selectedConfig);
+  const { text, provider, patientData: reconciledPatientData } = await regenerateSection(
+    req.params.sectionId,
+    patientData,
+    specialtyConfig,
+    req.body?.currentDraft ?? {},
+  );
+  res.json({
+    text,
+    sourceData: buildSourceData(reconciledPatientData || patientData, selectedConfig),
+    sourceDataBeforeReconciliation,
+    provider,
+  });
 }));
 
 apiRouter.post('/patients/:dfn/summary/approve', wrap(async (req, res) => {

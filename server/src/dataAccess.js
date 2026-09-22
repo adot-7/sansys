@@ -299,6 +299,7 @@ async function fetchNotes(dfn, episode, includeDetails = true) {
   if (!includeDetails) {
     return {
       notes: list.map((note) => mapNote(note)),
+      noteFacts: emptyNoteFacts(),
       detailsLoaded: false,
     };
   }
@@ -316,7 +317,11 @@ async function fetchNotes(dfn, episode, includeDetails = true) {
     detailed.push(...batch);
   }
   const notes = list.map((note, index) => mapNote(note, detailed[index]));
-  return { notes, detailsLoaded: true };
+  return {
+    notes,
+    noteFacts: mergeNoteFacts(list, detailed),
+    detailsLoaded: true,
+  };
 }
 
 async function fetchPatientShellUncached(dfn, requestedEpisodeId) {
@@ -333,7 +338,10 @@ async function fetchPatientShellUncached(dfn, requestedEpisodeId) {
     complaints: [],
     diagnoses: [],
     problems: [],
-    allergies: mapAllergies(allergiesRaw),
+    allergies: mapAllergies(
+      allergiesRaw,
+      (index) => sansysProvenance('/allergies/dashboard-list/:patientIen', `data[${index}]`),
+    ),
     medications: [],
     activeMedications: [],
     dischargeMedications: [],
@@ -395,20 +403,39 @@ async function fetchPatientUncached(dfn, requestedEpisodeId, includeNoteDetails)
       { dfn, status: '0', schedule_type: '0', visit_id: episode.id, from_date: '', to_date: '' }),
   ]);
 
-  const medications = listOf(medsRaw, 'orders').map(mapMedication);
-  const patient = {
+  const medications = listOf(medsRaw, 'orders').map((item, index) => mapMedication(item, sansysProvenance(
+    '/med/list', `data.orders[${index}]`, episode, item.medication_ien,
+  )));
+  const patient = applyNoteFacts({
     ...shell,
-    complaints: mapUniqueComplaints(listOf(complaintsRaw, 'complaints')),
-    diagnoses: sortDiagnoses(listOf(diagnosisRaw, 'diagnoses')),
-    problems: filterProblemsForEpisode(listOf(problemsRaw, 'problems'), episode),
+    complaints: mapUniqueComplaints(
+      listOf(complaintsRaw, 'complaints'),
+      (index) => sansysProvenance('/chiefcomplaint/dash-list/:patientIen', `data.complaints[${index}]`, episode),
+    ),
+    diagnoses: sortDiagnoses(listOf(diagnosisRaw, 'diagnoses').map((item, index) => mapDiagnosis(
+      item,
+      sansysProvenance('/diagnosis/dash/list', `data.diagnoses[${index}]`, episode, item.ien),
+    ))),
+    problems: filterProblemsForEpisode(
+      listOf(problemsRaw, 'problems'),
+      episode,
+      (index) => sansysProvenance('/problems/dash-list', `data.problems[${index}]`, episode),
+    ),
     medications,
-    activeMedications: medications.filter(isActiveMedication),
-    dischargeMedications: medications.filter(isDischargeMedication),
-    labOrders: listOf(labsRaw, 'orders').map(mapLab),
-    radOrders: listOf(radRaw, 'orders').map(mapRad),
-    vitals: normalizeVitals(vitalsRaw).filter((item) => inEpisodeWindow(item.dateTime, episode)),
+    labOrders: listOf(labsRaw, 'orders').map((item, index) => mapLab(
+      item,
+      sansysProvenance('/lab/list', `data.orders[${index}]`, episode, item.order_ien),
+    )),
+    radOrders: listOf(radRaw, 'orders').map((item, index) => mapRad(
+      item,
+      sansysProvenance('/rad/cpoe-list', `data.orders[${index}]`, episode, item.order_ien),
+    )),
+    vitals: normalizeVitals(
+      vitalsRaw,
+      (index) => sansysProvenance('/vitals/dash/load/:dfn', `data.vitals[${index}]`, episode),
+    ).filter((item) => inEpisodeWindow(item.dateTime, episode)),
     notes: notesResult.notes,
-  };
+  }, notesResult.noteFacts);
   console.log(
     `[sansys] patient ${dfn} assembled (${patient.complaints.length} complaints, ` +
     `${patient.diagnoses.length} diagnoses, ${patient.problems.length} problems, ` +
@@ -432,10 +459,7 @@ export async function fetchPatient(dfn, requestedEpisodeId, options = {}) {
     const result = await running;
     if (!includeNoteDetails || result.detailsLoaded) return clone(result.patient);
     const notesResult = await fetchNotes(dfn, result.patient.episode, true);
-    const patient = {
-      ...result.patient,
-      notes: notesResult.notes,
-    };
+    const patient = applyNoteFacts({ ...result.patient, notes: notesResult.notes }, notesResult.noteFacts);
     remember(patientCache, dfn, requestedEpisodeId, patient, { detailsLoaded: true });
     return clone(patient);
   }
@@ -444,10 +468,7 @@ export async function fetchPatient(dfn, requestedEpisodeId, options = {}) {
     const current = readCache(patientCache, key);
     if (current && includeNoteDetails && !current.detailsLoaded) {
       const notesResult = await fetchNotes(dfn, current.value.episode, true);
-      const patient = {
-        ...current.value,
-        notes: notesResult.notes,
-      };
+      const patient = applyNoteFacts({ ...current.value, notes: notesResult.notes }, notesResult.noteFacts);
       remember(patientCache, dfn, requestedEpisodeId, patient, { detailsLoaded: true });
       return { patient, detailsLoaded: true };
     }
@@ -511,6 +532,242 @@ export async function diagSansysConnectivity() {
 
 // ---- shared field mappers (raw Sansys item -> normalized contract item) ----
 
+function emptyNoteFacts() {
+  return {
+    complaints: [],
+    diagnoses: [],
+    problems: [],
+    allergies: [],
+    medications: [],
+    labOrders: [],
+    radOrders: [],
+    vitals: [],
+  };
+}
+
+function sansysProvenance(endpoint, path, episode, recordId) {
+  return {
+    sourceType: 'sansys-endpoint',
+    endpoint,
+    path,
+    ...(episode?.id ? { visitId: episode.id } : {}),
+    ...(recordId !== undefined && recordId !== null && str(recordId) ? { recordId: str(recordId) } : {}),
+    needsVerification: false,
+  };
+}
+
+function noteProvenance(note, path) {
+  return {
+    sourceType: 'clinical-note',
+    endpoint: `/clinical-notes/view/${encodeURIComponent(str(note.note_ien))}`,
+    path,
+    noteIen: str(note.note_ien),
+    noteTitle: str(note.note_title),
+    noteDate: str(note.date_of_entry),
+    needsVerification: true,
+  };
+}
+
+function provenanceOf(record) {
+  return Array.isArray(record?.provenance) ? record.provenance : [];
+}
+
+function uniqueProvenance(records) {
+  const seen = new Set();
+  return records.flatMap((record) => provenanceOf(record)).filter((item) => {
+    const key = JSON.stringify(item);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function isMissing(value) {
+  return value === '' || value === null || value === undefined || (Array.isArray(value) && value.length === 0);
+}
+
+function mergeFactRecords(existing, incoming) {
+  const merged = { ...existing };
+  for (const [key, value] of Object.entries(incoming)) {
+    if (key === 'provenance' || key === 'needsVerification' || key === 'statuses') continue;
+    if (isMissing(merged[key]) && !isMissing(value)) merged[key] = value;
+  }
+
+  const statuses = [...new Set([
+    ...(Array.isArray(existing.statuses) ? existing.statuses : []),
+    existing.status,
+    ...(Array.isArray(incoming.statuses) ? incoming.statuses : []),
+    incoming.status,
+  ].map(cleanText).filter(Boolean))];
+  if (statuses.length > 1) merged.statuses = statuses;
+  merged.provenance = uniqueProvenance([existing, incoming]);
+  const hasEndpointSource = merged.provenance.some((item) => item.sourceType === 'sansys-endpoint');
+  const hasNoteSource = merged.provenance.some((item) => item.sourceType === 'clinical-note');
+  merged.needsVerification = hasNoteSource && !hasEndpointSource;
+  return merged;
+}
+
+function mergeFactLists(primary, additional, keyOf) {
+  const result = [];
+  const indexes = new Map();
+  const append = (record) => {
+    const key = keyOf(record);
+    if (!key || !indexes.has(key)) {
+      if (key) indexes.set(key, result.length);
+      result.push(record);
+      return;
+    }
+    const index = indexes.get(key);
+    result[index] = mergeFactRecords(result[index], record);
+  };
+  for (const record of [...(primary || []), ...(additional || [])]) append(record);
+  return result;
+}
+
+function normalizedKey(...values) {
+  return values.map((value) => cleanText(value).toLocaleLowerCase()).join('|');
+}
+
+function complaintKey(item) {
+  return normalizedKey(item.type, item.name, item.date, item.remark);
+}
+
+function diagnosisKey(item) {
+  return normalizedKey(item.diagnosis, item.type, item.dateEntered);
+}
+
+function problemKey(item) {
+  return normalizedKey(item.problem, item.dateOnset);
+}
+
+function allergyKey(item) {
+  return normalizedKey(item.allergy, item.reaction, item.symptoms, item.date);
+}
+
+function labKey(item) {
+  return normalizedKey(item.name, item.orderDateTime);
+}
+
+function radKey(item) {
+  return normalizedKey(item.procedure, item.dateTime);
+}
+
+function vitalKey(item) {
+  return normalizedKey(item.dateTime, ...(item.measurements || []).map((measurement) => `${measurement.name}:${measurement.value}`));
+}
+
+function medicationIdentity(item) {
+  return normalizedKey(item.medication, item.route);
+}
+
+function mergeMedicationLists(primary, additional) {
+  const result = [...(primary || [])];
+  for (const medication of additional || []) {
+    const identity = medicationIdentity(medication);
+    const candidates = result
+      .map((item, index) => ({ item, index }))
+      .filter(({ item }) => medicationIdentity(item) === identity);
+    const match = medication.startDate
+      ? candidates.find(({ item }) => item.startDate === medication.startDate)
+      : candidates.length === 1 ? candidates[0] : null;
+    if (match) result[match.index] = mergeFactRecords(match.item, medication);
+    else result.push(medication);
+  }
+  return result;
+}
+
+function applyNoteFacts(patient, noteFacts = emptyNoteFacts()) {
+  const medications = mergeMedicationLists(patient.medications, noteFacts.medications);
+  return {
+    ...patient,
+    complaints: mergeFactLists(patient.complaints, noteFacts.complaints, complaintKey),
+    diagnoses: sortDiagnoses(mergeFactLists(patient.diagnoses, noteFacts.diagnoses, diagnosisKey)),
+    problems: mergeFactLists(patient.problems, noteFacts.problems, problemKey),
+    allergies: {
+      ...patient.allergies,
+      items: mergeFactLists(patient.allergies?.items, noteFacts.allergies, allergyKey),
+    },
+    medications,
+    activeMedications: medications.filter(isActiveMedication),
+    dischargeMedications: medications.filter(isDischargeMedication),
+    labOrders: mergeFactLists(patient.labOrders, noteFacts.labOrders, labKey),
+    radOrders: mergeFactLists(patient.radOrders, noteFacts.radOrders, radKey),
+    vitals: mergeFactLists(patient.vitals, noteFacts.vitals, vitalKey)
+      .sort((a, b) => String(a.dateTime).localeCompare(String(b.dateTime))),
+  };
+}
+
+export function mergeExtractedFacts(patient, extractedFacts = {}) {
+  const validNoteIens = new Set(
+    (patient.notes || []).flatMap((note) => provenanceOf(note).map((item) => item.noteIen).filter(Boolean)),
+  );
+  const facts = emptyNoteFacts();
+  const extracted = (key) => arrayOf(extractedFacts[key]);
+  const provenanceFor = (fact) => {
+    const source = arrayOf(fact.provenance).find((item) => item?.sourceType === 'clinical-note' && item.noteIen);
+    if (!source || (validNoteIens.size && !validNoteIens.has(str(source.noteIen)))) return null;
+    return {
+      ...source,
+      sourceType: 'clinical-note',
+      endpoint: source.endpoint || `/clinical-notes/view/${encodeURIComponent(str(source.noteIen))}`,
+      path: source.path || 'data.content',
+      needsVerification: true,
+    };
+  };
+  const withProvenance = (key, mapper) => extracted(key)
+    .map((fact) => {
+      const provenance = provenanceFor(fact);
+      return provenance ? mapper(fact, provenance) : null;
+    })
+    .filter(Boolean);
+
+  facts.complaints = withProvenance('complaints', mapComplaint);
+  facts.diagnoses = withProvenance('diagnoses', mapDiagnosis);
+  facts.problems = withProvenance('problems', mapProblem);
+  facts.medications = withProvenance('medications', mapMedication);
+  facts.labOrders = withProvenance('labOrders', mapLab);
+  facts.radOrders = withProvenance('radOrders', mapRad);
+  facts.vitals = withProvenance('vitals', (fact, provenance) => ({
+    ...fact,
+    provenance: [provenance],
+    needsVerification: true,
+  }));
+  facts.allergies = withProvenance('allergies', (fact, provenance) => ({
+    allergy: cleanText(fact.allergy ?? fact.allergy_name),
+    reaction: str(fact.reaction ?? fact.natureOfReaction ?? fact.nature),
+    symptoms: str(fact.symptoms),
+    date: dateStr(fact.date ?? fact.entry_datetime),
+    provenance: [provenance],
+    needsVerification: true,
+  }));
+  return applyNoteFacts(patient, facts);
+}
+
+function mergeNoteFacts(notes, details) {
+  const facts = emptyNoteFacts();
+  for (let index = 0; index < notes.length; index += 1) {
+    const noteFacts = mapNoteFacts(notes[index], details[index]);
+    facts.complaints.push(...noteFacts.complaints);
+    facts.diagnoses.push(...noteFacts.diagnoses);
+    facts.problems.push(...noteFacts.problems);
+    facts.allergies.push(...noteFacts.allergies);
+    facts.medications.push(...noteFacts.medications);
+    facts.labOrders.push(...noteFacts.labOrders);
+    facts.radOrders.push(...noteFacts.radOrders);
+    facts.vitals.push(...noteFacts.vitals);
+  }
+  return {
+    complaints: mergeFactLists([], facts.complaints, complaintKey),
+    diagnoses: sortDiagnoses(mergeFactLists([], facts.diagnoses, diagnosisKey)),
+    problems: mergeFactLists([], facts.problems, problemKey),
+    allergies: mergeFactLists([], facts.allergies, allergyKey),
+    medications: mergeMedicationLists([], facts.medications),
+    labOrders: mergeFactLists([], facts.labOrders, labKey),
+    radOrders: mergeFactLists([], facts.radOrders, radKey),
+    vitals: mergeFactLists([], facts.vitals, vitalKey),
+  };
+}
+
 function normalizeDemographics(raw) {
   const d = raw?.data && raw.data.lfname !== undefined ? raw.data : raw ?? {};
   return {
@@ -532,27 +789,33 @@ function cleanText(value) {
   return str(value).replace(/\s+/g, ' ').trim();
 }
 
-function mapComplaint(c) {
-  const type = cleanText(c.complaint_type);
+function mapComplaint(c, provenance) {
+  const type = cleanText(c.complaint_type ?? c.type);
   return {
-    name: cleanText(c.complaint_name),
+    name: cleanText(c.complaint_name ?? c.name),
     type: /^associated complaint$/i.test(type) ? 'Associated Complaint' : 'Chief Complaint',
     remark: cleanText(c.remark),
-    date: cleanText(c.date),
+    date: cleanText(c.date ?? c.entry_datetime),
+    ...(provenance ? { provenance: [provenance], needsVerification: Boolean(provenance.needsVerification) } : {}),
   };
 }
 
-function mapUniqueComplaints(list) {
-  const seen = new Set();
-  return list
-    .map(mapComplaint)
-    .filter((complaint) => {
-      if (!complaint.name) return false;
-      const key = JSON.stringify(complaint);
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
+function mapUniqueComplaints(list, provenanceFor = () => null) {
+  return mergeFactLists(
+    [],
+    list.map((item, index) => mapComplaint(item, provenanceFor(index))).filter((complaint) => complaint.name),
+    complaintKey,
+  );
+}
+
+function mapDiagnosis(d, provenance) {
+  return {
+    diagnosis: cleanText(d.diagnosis ?? d.diagnosis_name_with_icd ?? d.master_name),
+    isPrimary: d.isPrimary === true || /^primary$/i.test(str(d.isPrimarySecondary)),
+    type: str(d.type || d.isPrimarySecondary),
+    dateEntered: dateStr(d.dateEntered ?? d.diag_entered_date ?? d.entered_datetime),
+    ...(provenance ? { provenance: [provenance], needsVerification: Boolean(provenance.needsVerification) } : {}),
+  };
 }
 
 function sortDiagnoses(list) {
@@ -560,85 +823,89 @@ function sortDiagnoses(list) {
   return [
     ...list.filter((d) => d.isPrimary === true),
     ...list.filter((d) => d.isPrimary !== true),
-  ].map((d) => ({
-    diagnosis: str(d.diagnosis),
-    isPrimary: d.isPrimary === true,
-    type: str(d.type),
-    dateEntered: str(d.dateEntered),
-  }));
+  ];
 }
 
-export function filterProblemsForEpisode(list, episode) {
+export function filterProblemsForEpisode(list, episode, provenanceFor = () => null) {
   return list
-    .filter((problem) => {
+    .map((problem, index) => ({ problem, index }))
+    .filter(({ problem }) => {
       const dateEntered = dateStr(problem.dateEntered);
       // Undated problem records may be longstanding comorbidities; retain them
       // rather than dropping valid history when the upstream omits this field.
       return !dateEntered || inEpisodeWindow(dateEntered, episode);
     })
-    .map(mapProblem);
+    .map(({ problem, index }) => mapProblem(problem, provenanceFor(index)));
 }
 
-function mapProblem(p) {
+function mapProblem(p, provenance) {
   const comorbidity = p.comorbidity;
   return {
-    problem: str(p.problem),
+    problem: cleanText(p.problem ?? p.problem_name_with_icd ?? p.problem_name),
     status: str(p.status),
-    dateOnset: str(p.dateOnset),
+    dateOnset: dateStr(p.dateOnset ?? p.date_of_onset),
     comorbidity: comorbidity === true || comorbidity === 1 || ['true', '1', 'yes', 'y'].includes(str(comorbidity).toLowerCase()),
+    ...(provenance ? { provenance: [provenance], needsVerification: Boolean(provenance.needsVerification) } : {}),
   };
 }
 
-function mapAllergies(raw) {
+function mapAllergies(raw, provenanceFor = () => null) {
   // Live: { success, status, data: [...] }.
   return {
     status: str(raw?.status),
-    items: listOf(raw, 'data').map((a) => ({
-      allergy: str(a.allergy),
-      reaction: str(a.natureOfReaction),
+    items: listOf(raw, 'data').map((a, index) => ({
+      allergy: cleanText(a.allergy ?? a.allergy_name),
+      reaction: str(a.natureOfReaction ?? a.nature),
       symptoms: str(a.symptoms),
-      date: str(a.date),
+      date: dateStr(a.date ?? a.entry_datetime),
+      ...(provenanceFor(index) ? { provenance: [provenanceFor(index)], needsVerification: Boolean(provenanceFor(index).needsVerification) } : {}),
     })),
   };
 }
 
-function mapMedication(m) {
+function mapMedication(m, provenance) {
   return {
-    medication: str(m.medication_name),
-    startDate: str(m.start_date),
-    stopDate: str(m.stop_date),
+    medication: cleanText(m.medication_name ?? m.medication),
+    startDate: dateStr(m.start_date ?? m.startDate),
+    stopDate: dateStr(m.stop_date ?? m.stopDate),
     status: str(m.status),
     schedule: str(m.schedule),
-    scheduleType: str(m.schedule_type),
+    scheduleType: str(m.schedule_type ?? m.scheduleType),
+    route: str(m.route),
     service: str(m.service),
+    ...(provenance ? { provenance: [provenance], needsVerification: Boolean(provenance.needsVerification) } : {}),
   };
 }
 
 function isActiveMedication(medication) {
-  return medication.status.trim().toLowerCase() === 'active';
+  const statuses = [medication.status, ...(medication.statuses || [])]
+    .map((status) => cleanText(status).toLowerCase());
+  return statuses.includes('active');
 }
 
 function isDischargeMedication(medication) {
   if (!isActiveMedication(medication)) return false;
-  const text = `${medication.medication} ${medication.service}`.toLowerCase();
+  const text = `${medication.medication} ${medication.service} ${medication.route}`.toLowerCase();
   return !/(infusion|injection|\binj\b|\biv\b|intraven|vial|ampoule|\bamp\b|dextrose|saline|chemotherapy|docetaxel|paclitaxel|carboplatin|dressing)/i.test(text);
 }
 
-function mapLab(l) {
+function mapLab(l, provenance) {
   return {
-    name: str(l.itemOrdered),
+    name: cleanText(l.itemOrdered ?? l.lab_name ?? l.name),
     section: str(l.section),
-    orderDateTime: str(l.orderDateTime),
+    orderDateTime: dateStr(l.orderDateTime ?? l.entry_datetime),
     status: str(l.status?.name ?? l.status ?? ''),
+    ...(provenance ? { provenance: [provenance], needsVerification: Boolean(provenance.needsVerification) } : {}),
   };
 }
 
-function mapRad(r) {
+function mapRad(r, provenance) {
   return {
-    procedure: str(r.imaging_procedure),
+    procedure: cleanText(r.imaging_procedure ?? r.radiology_name ?? r.procedure),
     imagingType: str(r.imaging_type),
     status: str(r.status?.name ?? r.status ?? ''),
-    dateTime: str(r.start_date_time),
+    dateTime: dateStr(r.start_date_time ?? r.entry_datetime ?? r.dateTime),
+    ...(provenance ? { provenance: [provenance], needsVerification: Boolean(provenance.needsVerification) } : {}),
   };
 }
 
@@ -656,15 +923,53 @@ function mapNote(n, detail) {
     author: str(n.author_name),
     content: flattenNoteContent(detail?.data?.content),
     patientObjects: compactObjects,
+    provenance: [noteProvenance(n, 'data')],
+    needsVerification: true,
   };
 }
 
-function normalizeVitals(raw) {
+function mapNoteFacts(note, detail) {
+  const objects = detail?.data?.patient_objects || {};
+  const noteFact = (field, index) => noteProvenance(note, `data.patient_objects.${field}[${index}]`);
+  return {
+    complaints: arrayOf(objects.complaints).map((item, index) => mapComplaint(item, noteFact('complaints', index))),
+    diagnoses: arrayOf(objects.diagnoses).map((item, index) => mapDiagnosis(item, noteFact('diagnoses', index))),
+    problems: arrayOf(objects.problems).map((item, index) => mapProblem(item, noteFact('problems', index))),
+    allergies: arrayOf(objects.allergies).map((item, index) => ({
+      allergy: cleanText(item.allergy ?? item.allergy_name),
+      reaction: str(item.reaction ?? item.natureOfReaction ?? item.nature),
+      symptoms: str(item.symptoms),
+      date: dateStr(item.date ?? item.entry_datetime),
+      provenance: [noteFact('allergies', index)],
+      needsVerification: true,
+    })),
+    medications: arrayOf(objects.medications).map((item, index) => mapMedication(item, noteFact('medications', index))),
+    labOrders: arrayOf(objects.labs).map((item, index) => mapLab(item, noteFact('labs', index))),
+    radOrders: arrayOf(objects.radiology).map((item, index) => mapRad(item, noteFact('radiology', index))),
+    vitals: arrayOf(objects.vitals).map((item, index) => ({
+      dateTime: dateStr(item.date_time ?? item.entry_datetime),
+      measurements: [{
+        name: cleanText(item.name ?? item.vital_name),
+        value: str(item.value ?? item.vital_value),
+        unit: str(item.unit ?? item.vital_unit),
+        isAbnormal: false,
+      }],
+      provenance: [noteFact('vitals', index)],
+      needsVerification: true,
+    })),
+  };
+}
+
+function arrayOf(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function normalizeVitals(raw, provenanceFor = () => null) {
   // Measurements can arrive as an array [{ name, value, is_abnormal }] or as
   // an object keyed by vital name. The upstream uses either is_abnormal or
   // bgColor to indicate an abnormal reading.
   return listOf(raw, 'vitals')
-    .map((v) => {
+    .map((v, index) => {
       let ms = v.measurements ?? [];
       if (!Array.isArray(ms) && typeof ms === 'object') {
         ms = Object.entries(ms).map(([name, m]) => ({
@@ -674,14 +979,16 @@ function normalizeVitals(raw) {
         }));
       }
       return {
-        dateTime: str(v.date_time),
+        dateTime: dateStr(v.date_time),
         measurements: ms
           .filter((m) => str(m.value) && str(m.value).toLowerCase() !== 'not entered')
           .map((m) => ({
             name: str(m.name),
             value: str(m.value),
+            unit: str(m.unit),
             isAbnormal: m.is_abnormal === true || m.is_abnormal === 1 || ['true', '1', 'yes', 'y'].includes(str(m.is_abnormal).toLowerCase()),
           })),
+        provenance: provenanceFor(index),
       };
     })
     .sort((a, b) => String(a.dateTime).localeCompare(String(b.dateTime)));

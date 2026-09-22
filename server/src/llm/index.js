@@ -8,6 +8,7 @@ import { config, openAICompatiblePresets, resolveOpenAICompatible } from '../con
 import * as anthropic from './anthropic.js';
 import { createOpenAICompatibleProvider } from './chat.js';
 import { formatSectionText } from './format.js';
+import { mergeExtractedFacts } from '../dataAccess.js';
 
 const overrides = new Map();
 
@@ -48,10 +49,12 @@ export function getProvider() {
 }
 
 function normalizeDraft(result, patientData) {
+  const reconciledPatientData = mergeExtractedFacts(patientData, result?.extractedFacts);
   return {
     ...result,
+    patientData: reconciledPatientData,
     sections: Object.fromEntries(
-      Object.entries(result?.sections || {}).map(([id, text]) => [id, formatSectionText(id, text, patientData)]),
+      Object.entries(result?.sections || {}).map(([id, text]) => [id, formatSectionText(id, text, reconciledPatientData)]),
     ),
   };
 }
@@ -62,5 +65,6 @@ export async function generateDraft(patientData, specialtyConfig) {
 
 export async function regenerateSection(sectionId, patientData, specialtyConfig, existingDraft) {
   const result = await getProvider().regenerateSection(sectionId, patientData, specialtyConfig, existingDraft);
-  return { ...result, text: formatSectionText(sectionId, result?.text, patientData) };
+  const reconciledPatientData = mergeExtractedFacts(patientData, result?.extractedFacts);
+  return { ...result, patientData: reconciledPatientData, text: formatSectionText(sectionId, result?.text, reconciledPatientData) };
 }

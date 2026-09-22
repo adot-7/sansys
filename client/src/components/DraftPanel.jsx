@@ -7,6 +7,7 @@ export default function DraftPanel({
   regenLoading,
   regenError,
   draftLoading,
+  sourceNeedsVerification,
   readOnly,
 }) {
   if (readOnly) {
@@ -51,6 +52,11 @@ export default function DraftPanel({
         <div className="panel-body panel-plain">No data available — enter manually</div>
       ) : (
         <div className="panel-body draft-text">
+          {sourceNeedsVerification && (
+            <div className="source-verification-note">
+              Includes facts recorded in clinical notes. Verify the source record before approval.
+            </div>
+          )}
           <pre className="draft-pre">{text}</pre>
         </div>
       )}

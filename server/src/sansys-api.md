@@ -35,7 +35,7 @@ payloads directly.
 | Response wrapper | Lists were expected directly or with consistent nesting | Most responses are `{ success, data: { <list>: [...] } }` | `listOf()` accepts both direct and nested lists |
 | Patient identity | One patient identifier was expected everywhere | Endpoints mix `dfn`, `patientIen`, `visit_id`, `admissionId`, and `admissionIen` | The adapter uses the endpoint-specific identifier; they are not interchangeable |
 | Demographics | Normal names such as `firstName`, `lastName`, `uhid`, and `ipNo` | Raw names such as `lfname`, `llname`, `cpPID`, and `cpIPNo` | Mapped into the normalized demographics object |
-| Clinical notes | Full note content was expected | The list returns metadata; detail content and `patient_objects` may be empty | Draft requests load note details; normalized notes expose flattened content and non-medication `patientObjects` |
+| Clinical notes | Full note content was expected | The list returns metadata; detail content and `patient_objects` may be empty | Draft requests load note details; structured note facts are reconciled into canonical collections with provenance |
 | Vitals | A populated vitals list was expected on the first request | First response can contain empty `vitals` plus an `admissions` list | The adapter retries with the returned admission ID |
 | Vital measurements | Measurements may be a list of readings | Measurements are an object keyed by vital name; abnormality is indicated by `is_abnormal` (older payloads used `bgColor`) | Keys are converted to normalized measurement records and empty values are dropped |
 | Lab status | Status was expected as a string | Lab status is an object such as `{ name: "COMPLETED" }` | The nested status name is extracted |
@@ -78,13 +78,12 @@ date window as a secondary safeguard. It then loads
 `/clinical-notes/view/:note_ien` so structured note content and
 `patient_objects` can contribute to the episode summary.
 
-Live comparison caveat: for `PAT123456`, notes, problems, and complaints
-returned different records for `1-9013` and `1-1`, but labs, radiology,
-medications, diagnoses, and vitals returned the same record IDs for both
-requests. Those endpoints accept `visit_id`/`admissionId`, but this dataset does
-not prove that they apply the filter. Do not describe those collections as
-fully episode-isolated until Sansys confirms the filtering semantics or a
-patient with independently verifiable episode data is tested.
+The current live check for `PAT123456` returned different counts for the two
+episodes, including medications (`35` for `1-9013`, `0` for `1-1`), diagnoses,
+labs, radiology, and vitals. The adapter still sends the episode identifier to
+every endpoint and records provenance so a doctor can see whether a fact came
+from an endpoint or a clinical note. Note detail has no episode parameter; its
+episode association comes from the filtered note list.
 
 Allergies currently have no episode parameter and remain patient-level data.
 
@@ -159,6 +158,12 @@ Allergies currently have no episode parameter and remain patient-level data.
   }
 }
 ```
+
+Structured objects in a note are not discarded. The adapter maps note
+diagnoses, problems, complaints, allergies, medications, labs, radiology, and
+vitals into the normalized collections. Each mapped item retains the note IEN
+and source path as provenance and is marked for doctor verification unless the
+same fact is confirmed by an episode endpoint.
 
 ## 4. Lab orders
 

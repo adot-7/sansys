@@ -40,12 +40,13 @@ export function createOpenAICompatibleProvider({ baseUrl, apiKey, model, provide
         userPrompt: buildDraftUserPrompt(patientData, specialtyConfig),
         jsonMode,
       });
+      const sectionPayload = parsed?.sections && typeof parsed.sections === 'object' ? parsed.sections : parsed;
       const sections = {};
       for (const section of specialtyConfig.sections) {
-        const value = section.source === null && !Array.isArray(section.sources) ? '' : parsed?.[section.id];
+        const value = section.source === null && !Array.isArray(section.sources) ? '' : sectionPayload?.[section.id];
         sections[section.id] = typeof value === 'string' ? value : value === undefined || value === null ? '' : String(value);
       }
-      return { sections, provider: providerKey };
+      return { sections, extractedFacts: parsed?.extractedFacts || {}, provider: providerKey };
     },
     async regenerateSection(sectionId, patientData, specialtyConfig, existingDraft) {
       const parsed = await callChatCompletions({
@@ -57,7 +58,7 @@ export function createOpenAICompatibleProvider({ baseUrl, apiKey, model, provide
         jsonMode: false,
       });
       const text = typeof parsed === 'string' ? parsed : parsed?.text ?? '';
-      return { text: String(text), provider: providerKey };
+      return { text: String(text), extractedFacts: parsed?.extractedFacts || {}, provider: providerKey };
     },
   };
 }

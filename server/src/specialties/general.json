@@ -47,7 +47,7 @@
       "id": "current-medication",
       "title": "Current Medication",
       "source": "activeMedications",
-      "promptHint": "List active medications using only the medication name, recorded schedule, start date, and stop date. Use one medication per line. Do not include status, do not invent dose or route, and do not add medications from clinical-note patient_objects.",
+      "promptHint": "List active medications using only the medication name, recorded schedule, start date, stop date, and route when recorded. Reconcile active orders with explicit note-recorded medications; note-only facts are provisional and require doctor verification. Use one medication per line, omit status, and do not invent dose or route.",
       "requiredManual": false,
       "manualEntry": false
     },
@@ -120,7 +120,7 @@
       "id": "medications-during-stay",
       "title": "Medications During Stay",
       "source": "medications",
-      "promptHint": "List medications ordered during this episode using one line per medication with only medication name, recorded schedule, start date, and stop date. Do not include status or raw JSON.",
+      "promptHint": "List medication facts recorded during this episode, including explicit medications in clinical notes when no order exists. Use one line per medication with medication name, recorded schedule, start date, stop date, and route. Note-only facts require doctor verification; do not include raw JSON.",
       "requiredManual": false,
       "manualEntry": false
     },
@@ -129,7 +129,7 @@
       "title": "Medications on Discharge",
       "source": "dischargeMedications",
       "sources": ["dischargeMedications", "diagnoses"],
-      "promptHint": "Draft a concise medication-on-discharge list using only discharge-suitable active medication orders and the recorded diagnoses as context. Exclude injections, IV/infusion/chemotherapy, inpatient-only supplies, and any medication not present in the orders. Use medication name, schedule, start date, and stop date; omit status. Do not invent a replacement when no suitable order is recorded.",
+      "promptHint": "Draft a concise medication-on-discharge list using active discharge-suitable orders plus explicit active oral/topical medications recorded in notes. Exclude injections, IV/infusion/chemotherapy, inpatient-only supplies, and any medication not present in the reconciled facts. Note-only medications must remain visibly provisional for doctor verification. Use medication name, schedule, start date, and stop date; omit status and do not invent a replacement.",
       "requiredManual": false,
       "manualEntry": false
     },

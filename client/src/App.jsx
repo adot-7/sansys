@@ -61,6 +61,15 @@ function objToEntries(obj) {
   return Object.entries(obj || {});
 }
 
+function containsVerificationFlag(value) {
+  if (Array.isArray(value)) return value.some(containsVerificationFlag);
+  if (!value || typeof value !== 'object') return false;
+  if (value.needsVerification === true) return true;
+  return Object.entries(value)
+    .filter(([key]) => key !== 'provenance')
+    .some(([, item]) => containsVerificationFlag(item));
+}
+
 export default function App() {
   const [dfnInput, setDfnInput] = useState(DEFAULT_DFN);
   const [specialty, setSpecialty] = useState('general');
@@ -360,6 +369,7 @@ export default function App() {
           : patient?.[source] ?? null,
       }), {})
     : null;
+  const sourceNeedsVerification = containsVerificationFlag(sourceData);
 
   return (
     <div className="app">
@@ -427,10 +437,11 @@ export default function App() {
                   regenLoading={activeRegen.loading}
                   regenError={activeRegen.error}
                   draftLoading={draftLoading}
+                  sourceNeedsVerification={sourceNeedsVerification}
                   readOnly={readOnly}
                 />
                 <details className="source-data-panel">
-                  <summary>Source data sent to AI (before draft)</summary>
+                  <summary>Reconciled source data used for this draft</summary>
                   {activeSources.length ? (
                     <pre className="source-data-pre">{JSON.stringify(sourceData ?? null, null, 2)}</pre>
                   ) : (
