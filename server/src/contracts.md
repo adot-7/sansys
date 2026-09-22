@@ -19,13 +19,15 @@ dataAccess.js changes (its external reference is `sansys-api.md`).
   "diagnoses":     [{ "diagnosis": "", "isPrimary": true, "type": "", "dateEntered": "" }],  // primary first
   "problems":      [{ "problem": "", "status": "", "dateOnset": "", "comorbidity": false }],
   "allergies":     { "status": "", "items": [{ "allergy": "", "reaction": "", "symptoms": "", "date": "" }] },
-  "medications":   [{ "medication": "", "startDate": "", "stopDate": "", "status": "", "scheduleType": "" }],
+  "medications":   [{ "medication": "", "startDate": "", "stopDate": "", "status": "", "schedule": "", "scheduleType": "", "service": "" }],
+  "activeMedications": [{ "medication": "", "startDate": "", "stopDate": "", "status": "", "schedule": "", "scheduleType": "", "service": "" }],
+  "dischargeMedications": [{ "medication": "", "startDate": "", "stopDate": "", "status": "", "schedule": "", "scheduleType": "", "service": "" }],
   "labOrders":     [{ "name": "", "section": "", "orderDateTime": "", "status": "" }],
   "radOrders":     [{ "procedure": "", "imagingType": "", "status": "", "dateTime": "" }],
   "vitals":        [{ "dateTime": "", "measurements": [{ "name": "", "value": "", "isAbnormal": false }] }], // newest last
-  "notes":         [{ "title": "", "dateOfEntry": "", "status": "", "author": "" }]
-  ,"episodes":     [{ "id": "1-9013", "label": "23 JUL 2026 16:11 - MAX-SMART ICU-A", "admissionId": "9013", "startDate": "2026-07-23", "dateFrom": "2026-07-23", "dateTo": "" }]
-  ,"episodeId":     "1-9013"
+  "notes":         [{ "noteIen": "", "title": "", "dateOfEntry": "", "status": "", "author": "", "content": [], "patientObjects": {} }],
+  "episodes":      [{ "id": "1-9013", "label": "23 JUL 2026 16:11 - MAX-SMART ICU-A", "admissionId": "9013", "startDate": "2026-07-23", "dateFrom": "2026-07-23", "dateTo": "" }],
+  "episodeId":     "1-9013"
 }
 ```
 
@@ -72,8 +74,8 @@ when a patient's specialty has no config.
 - `GET  /api/patients/:dfn?episodeId=1-9013` → normalized patient object for the selected IP episode, including `episodes` and `episodeId`
 - `GET  /api/patients/:dfn/shell?episodeId=1-9013` → fast shell with demographics, allergies, `episodes`, and `episodeId`; clinical collections are empty until the full patient request completes
 - `GET  /api/specialties` → `{ specialties: [{ key, label, sectionCount }] }`
-- `POST /api/patients/:dfn/draft` body `{ specialty, episodeId, sectionIds }` → `{ specialty, sections: { id: text }, provider }`
-- `POST /api/patients/:dfn/draft/:sectionId/regenerate` body `{ specialty, episodeId, currentDraft }` → `{ text, provider }`
+- `POST /api/patients/:dfn/draft` body `{ specialty, episodeId, sectionIds }` → `{ specialty, sections: { id: text }, sourceData, provider }`. `sourceData` is the exact normalized source snapshot sent to the LLM for the selected sections.
+- `POST /api/patients/:dfn/draft/:sectionId/regenerate` body `{ specialty, episodeId, currentDraft }` → `{ text, sourceData, provider }`
 - `POST /api/patients/:dfn/summary/approve` body `{ specialty, episodeId, sections, approvedBy }`
   → `400 { error }` if any `requiredManual` section is empty; else `{ ok: true, approvedAt }`
 - `GET  /api/patients/:dfn/summary?episodeId=1-9013` → `{ summary: null }` or
@@ -91,6 +93,8 @@ Patient data is cached in process for 60 seconds only to prevent the draft and
 regeneration routes from refetching the same Sansys data. It is not persistent
 clinical storage; a process restart clears it. Clinical-note details are
 deferred from the patient endpoint and loaded when draft generation needs them.
+Medication sections use only the episode's `/med/list` orders; medications
+embedded in clinical-note `patient_objects` are not merged into that list.
 
 ## Hard rules
 

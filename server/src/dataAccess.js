@@ -299,7 +299,6 @@ async function fetchNotes(dfn, episode, includeDetails = true) {
   if (!includeDetails) {
     return {
       notes: list.map((note) => mapNote(note)),
-      embeddedMedications: [],
       detailsLoaded: false,
     };
   }
@@ -317,8 +316,7 @@ async function fetchNotes(dfn, episode, includeDetails = true) {
     detailed.push(...batch);
   }
   const notes = list.map((note, index) => mapNote(note, detailed[index]));
-  const embeddedMedications = detailed.flatMap((detail) => detail?.data?.patient_objects?.medications || []);
-  return { notes, embeddedMedications, detailsLoaded: true };
+  return { notes, detailsLoaded: true };
 }
 
 async function fetchPatientShellUncached(dfn, requestedEpisodeId) {
@@ -337,6 +335,8 @@ async function fetchPatientShellUncached(dfn, requestedEpisodeId) {
     problems: [],
     allergies: mapAllergies(allergiesRaw),
     medications: [],
+    activeMedications: [],
+    dischargeMedications: [],
     labOrders: [],
     radOrders: [],
     vitals: [],
@@ -364,14 +364,6 @@ export async function fetchPatientShell(dfn, requestedEpisodeId) {
   } finally {
     shellInflight.delete(key);
   }
-}
-
-function mergeEmbeddedMedications(patient, embeddedMedications) {
-  patient.medications = [
-    ...patient.medications,
-    ...embeddedMedications.map(mapEmbeddedMedication),
-  ].filter((medication, index, list) => list.findIndex((item) => item.medication === medication.medication && item.startDate === medication.startDate) === index);
-  return patient;
 }
 
 async function fetchPatientUncached(dfn, requestedEpisodeId, includeNoteDetails) {
@@ -403,18 +395,20 @@ async function fetchPatientUncached(dfn, requestedEpisodeId, includeNoteDetails)
       { dfn, status: '0', schedule_type: '0', visit_id: episode.id, from_date: '', to_date: '' }),
   ]);
 
+  const medications = listOf(medsRaw, 'orders').map(mapMedication);
   const patient = {
     ...shell,
     complaints: mapUniqueComplaints(listOf(complaintsRaw, 'complaints')),
     diagnoses: sortDiagnoses(listOf(diagnosisRaw, 'diagnoses')),
     problems: filterProblemsForEpisode(listOf(problemsRaw, 'problems'), episode),
-    medications: listOf(medsRaw, 'orders').map(mapMedication),
+    medications,
+    activeMedications: medications.filter(isActiveMedication),
+    dischargeMedications: medications.filter(isDischargeMedication),
     labOrders: listOf(labsRaw, 'orders').map(mapLab),
     radOrders: listOf(radRaw, 'orders').map(mapRad),
     vitals: normalizeVitals(vitalsRaw).filter((item) => inEpisodeWindow(item.dateTime, episode)),
     notes: notesResult.notes,
   };
-  mergeEmbeddedMedications(patient, notesResult.embeddedMedications);
   console.log(
     `[sansys] patient ${dfn} assembled (${patient.complaints.length} complaints, ` +
     `${patient.diagnoses.length} diagnoses, ${patient.problems.length} problems, ` +
@@ -438,10 +432,10 @@ export async function fetchPatient(dfn, requestedEpisodeId, options = {}) {
     const result = await running;
     if (!includeNoteDetails || result.detailsLoaded) return clone(result.patient);
     const notesResult = await fetchNotes(dfn, result.patient.episode, true);
-    const patient = mergeEmbeddedMedications({
+    const patient = {
       ...result.patient,
       notes: notesResult.notes,
-    }, notesResult.embeddedMedications);
+    };
     remember(patientCache, dfn, requestedEpisodeId, patient, { detailsLoaded: true });
     return clone(patient);
   }
@@ -450,10 +444,10 @@ export async function fetchPatient(dfn, requestedEpisodeId, options = {}) {
     const current = readCache(patientCache, key);
     if (current && includeNoteDetails && !current.detailsLoaded) {
       const notesResult = await fetchNotes(dfn, current.value.episode, true);
-      const patient = mergeEmbeddedMedications({
+      const patient = {
         ...current.value,
         notes: notesResult.notes,
-      }, notesResult.embeddedMedications);
+      };
       remember(patientCache, dfn, requestedEpisodeId, patient, { detailsLoaded: true });
       return { patient, detailsLoaded: true };
     }
@@ -614,8 +608,20 @@ function mapMedication(m) {
     startDate: str(m.start_date),
     stopDate: str(m.stop_date),
     status: str(m.status),
+    schedule: str(m.schedule),
     scheduleType: str(m.schedule_type),
+    service: str(m.service),
   };
+}
+
+function isActiveMedication(medication) {
+  return medication.status.trim().toLowerCase() === 'active';
+}
+
+function isDischargeMedication(medication) {
+  if (!isActiveMedication(medication)) return false;
+  const text = `${medication.medication} ${medication.service}`.toLowerCase();
+  return !/(infusion|injection|\binj\b|\biv\b|intraven|vial|ampoule|\bamp\b|dextrose|saline|chemotherapy|docetaxel|paclitaxel|carboplatin|dressing)/i.test(text);
 }
 
 function mapLab(l) {
@@ -650,16 +656,6 @@ function mapNote(n, detail) {
     author: str(n.author_name),
     content: flattenNoteContent(detail?.data?.content),
     patientObjects: compactObjects,
-  };
-}
-
-function mapEmbeddedMedication(m) {
-  return {
-    medication: str(m.medication_name),
-    startDate: str(m.entry_datetime),
-    stopDate: '',
-    status: str(m.status),
-    scheduleType: str(m.schedule),
   };
 }
 

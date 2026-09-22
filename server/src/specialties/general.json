@@ -31,7 +31,7 @@
       "id": "history-present-illness",
       "title": "History of Present Illness",
       "source": "complaints",
-      "promptHint": "Write a concise chronological History of Present Illness using the chief complaints plus associated complaints and their recorded remarks. Group repeated symptoms rather than listing every row, and make the narrative useful to a doctor reviewing the whole episode. There is no dedicated HPI field, so use only this recorded proxy; do not invent detail or replace the narrative with a disclaimer. Add at most one short review caveat at the end if needed.",
+      "promptHint": "Write a concise chronological History of Present Illness using the chief complaints plus associated complaints and their recorded remarks. Group repeated symptoms rather than listing every row. Return 2-4 useful lines separated by real line breaks, not a raw data dump. There is no dedicated HPI field, so use only this recorded proxy; do not invent detail or replace the narrative with a disclaimer. Add at most one short review caveat at the end if needed.",
       "requiredManual": false,
       "manualEntry": false
     },
@@ -39,15 +39,15 @@
       "id": "past-medical-history",
       "title": "Past Medical History",
       "source": "problems",
-      "promptHint": "Summarize the distinct recorded problems as a concise Past Medical History, including status, onset, and comorbidity when present. Treat problems not obviously tied to the current admission diagnosis as past history, but do not invent or reclassify conditions. Write the useful list first; add at most one short review caveat at the end if needed.",
+      "promptHint": "Summarize the distinct recorded problems as a concise Past Medical History. Include status and onset when recorded, one problem per line, and do not invent or reclassify conditions. Write the useful list first; add at most one short review caveat at the end if needed.",
       "requiredManual": false,
       "manualEntry": false
     },
     {
       "id": "current-medication",
       "title": "Current Medication",
-      "source": "medications",
-      "promptHint": "Only orders with status ACTIVE. The source does not separate home medications from admission-started ones; treat as best effort and note the ambiguity rather than guessing.",
+      "source": "activeMedications",
+      "promptHint": "List active medications using only the medication name, recorded schedule, start date, and stop date. Use one medication per line. Do not include status, do not invent dose or route, and do not add medications from clinical-note patient_objects.",
       "requiredManual": false,
       "manualEntry": false
     },
@@ -96,7 +96,7 @@
       "title": "Course in Hospital",
       "source": "vitals",
       "sources": ["notes", "labOrders", "radOrders", "medications", "vitals"],
-      "promptHint": "Synthesize notes, lab orders, radiology orders, medication changes, and the vitals trend across the stay into a brief chronological course. Do not reproduce a medication list here; medication sections are canonical. Stick to what the data shows; this section needs the doctor's close review before approval.",
+      "promptHint": "Synthesize notes, lab orders, radiology orders, medication changes, and the vitals trend across the stay into 3-6 concise chronological lines separated by real line breaks. Do not reproduce raw lists or a medication list here; medication sections are canonical. Stick to what the data shows and make the result useful for a doctor reviewing the whole episode.",
       "requiredManual": false,
       "manualEntry": false
     },
@@ -120,23 +120,25 @@
       "id": "medications-during-stay",
       "title": "Medications During Stay",
       "source": "medications",
-      "promptHint": "Include orders with a start_date inside the admission window, including completed and discontinued ones with their stop dates.",
+      "promptHint": "List medications ordered during this episode using one line per medication with only medication name, recorded schedule, start date, and stop date. Do not include status or raw JSON.",
       "requiredManual": false,
       "manualEntry": false
     },
     {
       "id": "medications-on-discharge",
       "title": "Medications on Discharge",
-      "source": "medications",
-      "promptHint": "Only orders with status ACTIVE at the time the draft is generated.",
+      "source": "dischargeMedications",
+      "sources": ["dischargeMedications", "diagnoses"],
+      "promptHint": "Draft a concise medication-on-discharge list using only discharge-suitable active medication orders and the recorded diagnoses as context. Exclude injections, IV/infusion/chemotherapy, inpatient-only supplies, and any medication not present in the orders. Use medication name, schedule, start date, and stop date; omit status. Do not invent a replacement when no suitable order is recorded.",
       "requiredManual": false,
       "manualEntry": false
     },
     {
       "id": "advice",
       "title": "Advice",
-      "source": null,
-      "promptHint": "No structured source. The LLM may draft generic advice grounded only in the recorded diagnoses, but this must be flagged as needing doctor review and must not be treated as reliable.",
+      "source": "notes",
+      "sources": ["notes", "diagnoses"],
+      "promptHint": "Draft short patient-specific advice from explicit advice, restrictions, precautions, or instructions in progress/discharge notes. Use diagnoses only as context. If notes do not contain explicit advice, provide only a concise diagnosis-grounded draft for doctor review; do not invent doses, appointments, or restrictions.",
       "requiredManual": false,
       "manualEntry": false
     },
@@ -151,8 +153,9 @@
     {
       "id": "follow-up-advice",
       "title": "Follow Up Advice",
-      "source": null,
-      "promptHint": "No structured source. LLM may draft generic follow-up advice grounded only in the diagnoses, flagged as needing doctor review before approval.",
+      "source": "diagnoses",
+      "sources": ["diagnoses", "notes"],
+      "promptHint": "Draft brief follow-up advice grounded primarily in the recorded diagnoses, using any explicit follow-up instructions in notes. Do not invent a clinic, interval, test, or treatment change that is not recorded; keep it useful and clearly for doctor review.",
       "requiredManual": false,
       "manualEntry": false
     }

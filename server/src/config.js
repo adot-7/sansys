@@ -6,7 +6,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export const config = {
   port: Number(process.env.PORT || 3001),
-  sansysBaseUrl: process.env.SANSYS_BASE_URL || 'http://182.70.249.137:3030',
+  sansysBaseUrl: process.env.SANSYS_BASE_URL || 'http://182.70.249.137:5050',
   // Per-endpoint live fetch timeout (ms). On timeout the request fails — there
   // is no fallback data anymore. Generous default: the test server can be slow
   // from cloud/foreign hosts (e.g. Render), where it may take >10s to respond.

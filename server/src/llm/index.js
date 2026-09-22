@@ -7,6 +7,7 @@
 import { config, openAICompatiblePresets, resolveOpenAICompatible } from '../config.js';
 import * as anthropic from './anthropic.js';
 import { createOpenAICompatibleProvider } from './chat.js';
+import { formatSectionText } from './format.js';
 
 const overrides = new Map();
 
@@ -46,30 +47,20 @@ export function getProvider() {
   });
 }
 
-function normalizeGeneratedText(value) {
-  return String(value ?? '')
-    .replace(/\\r\\n/g, '\n')
-    .replace(/\\n/g, '\n')
-    .replace(/\\r/g, '\r')
-    .replace(/\\t/g, '\t')
-    .replace(/\r\n?/g, '\n')
-    .trim();
-}
-
-function normalizeDraft(result) {
+function normalizeDraft(result, patientData) {
   return {
     ...result,
     sections: Object.fromEntries(
-      Object.entries(result?.sections || {}).map(([id, text]) => [id, normalizeGeneratedText(text)]),
+      Object.entries(result?.sections || {}).map(([id, text]) => [id, formatSectionText(id, text, patientData)]),
     ),
   };
 }
 
 export async function generateDraft(patientData, specialtyConfig) {
-  return normalizeDraft(await getProvider().generateDraft(patientData, specialtyConfig));
+  return normalizeDraft(await getProvider().generateDraft(patientData, specialtyConfig), patientData);
 }
 
 export async function regenerateSection(sectionId, patientData, specialtyConfig, existingDraft) {
   const result = await getProvider().regenerateSection(sectionId, patientData, specialtyConfig, existingDraft);
-  return { ...result, text: normalizeGeneratedText(result?.text) };
+  return { ...result, text: formatSectionText(sectionId, result?.text, patientData) };
 }

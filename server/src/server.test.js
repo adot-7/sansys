@@ -18,6 +18,7 @@ const { initStore } = await import('./store.js');
 const { registerProvider } = await import('./llm/index.js');
 const { buildDraftUserPrompt } = await import('./llm/prompts.js');
 const { filterProblemsForEpisode } = await import('./dataAccess.js');
+const { formatSectionText } = await import('./llm/format.js');
 
 initStore();
 const app = express();
@@ -32,7 +33,7 @@ registerProvider('test', {
   async generateDraft(patientData, specialtyConfig) {
     const sections = {};
     for (const s of specialtyConfig.sections) {
-      sections[s.id] = s.source === null ? '' : s.id === 'presenting-complaints' ? 'first line\\nsecond line' : `draft-${s.id}`;
+      sections[s.id] = s.source === null ? '' : s.id === 'history-present-illness' ? 'first line\\nsecond line' : `draft-${s.id}`;
     }
     return { sections, provider: 'test' };
   },
@@ -50,8 +51,12 @@ const jsonRes = (body) => ({ ok: true, status: 200, json: async () => body });
 let vitalsCalls = 0;
 let problemsNetworkFails = 0;
 let clinicalNoteDetailCalls = 0;
-globalThis.fetch = async (input) => {
+globalThis.fetch = async (input, options = {}) => {
   const url = String(input);
+  let requestBody = {};
+  try {
+    requestBody = options.body ? JSON.parse(options.body) : {};
+  } catch {}
   if (url.includes('/vitals/dash/load/')) {
     vitalsCalls += 1;
     return jsonRes(
@@ -62,7 +67,15 @@ globalThis.fetch = async (input) => {
   }
   if (url.includes('/clinical-notes/view/')) {
     clinicalNoteDetailCalls += 1;
-    return jsonRes({ success: true, data: { content: [], patient_objects: {} } });
+    return jsonRes({
+      success: true,
+      data: {
+        content: [],
+        patient_objects: {
+          medications: [{ medication_name: 'NOTE-ONLY INJECTION', entry_datetime: '2026-08-02', status: 'ACTIVE', schedule: 'STAT' }],
+        },
+      },
+    });
   }
   if (url.includes('/problems/dash-list')) {
     // Simulate one transient network reset (ECONNRESET) — dataAccess must
@@ -83,7 +96,12 @@ globalThis.fetch = async (input) => {
   if (url.includes('/diagnosis/dash/list')) return jsonRes(patientFixture.diagnosis);
   if (url.includes('/chiefcomplaint/dash-list/')) return jsonRes(patientFixture.chiefComplaints);
   if (url.includes('/allergies/dashboard-list/')) return jsonRes(patientFixture.allergies);
-  if (url.includes('/med/list')) return jsonRes(patientFixture.medications);
+  if (url.includes('/med/list')) {
+    if (requestBody.visit_id === 'empty-medication-episode') {
+      return jsonRes({ success: true, data: { orders: [] } });
+    }
+    return jsonRes(patientFixture.medications);
+  }
   throw new Error(`test stub: unexpected Sansys URL ${url}`);
 };
 
@@ -150,10 +168,37 @@ test('future problem records are excluded from an older episode', () => {
   assert.equal(problems[0].comorbidity, true);
 });
 
+test('medication formatting exposes schedule and dates without status', () => {
+  const text = formatSectionText('current-medication', '', {
+    activeMedications: [{ medication: 'Tablet A', schedule: 'Not Specified', scheduleType: 'R', startDate: '2026-08-01', stopDate: '' }],
+  });
+  assert.equal(text, '- Tablet A; schedule: Not Specified (type: R); start: 2026-08-01; stop: ongoing');
+  assert.equal(text.includes('ACTIVE'), false);
+});
+
+test('empty advice sections receive concise diagnosis-grounded drafts', () => {
+  const patient = { diagnoses: [{ diagnosis: 'Recorded diagnosis', isPrimary: true }] };
+  assert.match(formatSectionText('advice', '', patient), /Recorded diagnosis/);
+  assert.match(formatSectionText('follow-up-advice', '', patient), /Recorded diagnosis/);
+});
+
 test('draft text converts escaped line breaks to rendered line breaks', async () => {
   const res = await POST(`/api/patients/${DFN}/draft`, { specialty: 'general', episodeId: 'line-break-test' });
   assert.equal(res.status, 200);
-  assert.equal(res.body.sections['presenting-complaints'], 'first line\nsecond line');
+  assert.equal(res.body.sections['history-present-illness'], 'first line\nsecond line');
+  assert.match(res.body.sections['presenting-complaints'], /\n/);
+  assert.ok(res.body.sourceData && res.body.sourceData.notes);
+});
+
+test('note-embedded medications do not enter canonical episode medication data', async () => {
+  const res = await POST(`/api/patients/${DFN}/draft`, { specialty: 'general', episodeId: 'empty-medication-episode' });
+  assert.equal(res.status, 200);
+  assert.ok(res.body.sourceData && Array.isArray(res.body.sourceData.medications));
+  assert.equal(res.body.sourceData.medications.length, 0);
+  assert.equal(res.body.sourceData.activeMedications.length, 0);
+  assert.equal(res.body.sourceData.dischargeMedications.length, 0);
+  assert.equal(res.body.sourceData.medications.some((item) => item.medication === 'NOTE-ONLY INJECTION'), false);
+  assert.equal(res.body.sourceData.activeMedications.some((item) => item.medication === 'NOTE-ONLY INJECTION'), false);
 });
 
 for (const spec of listSpecialties()) {

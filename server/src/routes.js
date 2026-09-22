@@ -3,6 +3,7 @@ import { Router } from 'express';
 import { fetchPatient, fetchPatientShell, diagSansysConnectivity } from './dataAccess.js';
 import { createSpecialty, listSpecialties, loadSpecialty } from './specialties/index.js';
 import { generateDraft, regenerateSection } from './llm/index.js';
+import { buildSourceData } from './llm/prompts.js';
 import { getSummary, saveSummary } from './store.js';
 
 export const apiRouter = Router();
@@ -56,7 +57,7 @@ apiRouter.post('/patients/:dfn/draft', wrap(async (req, res) => {
   await addCustomEndpointData(patientData, selectedConfig.sections, req.params.dfn);
   const { sections, provider } = await generateDraft(patientData, selectedConfig);
   for (const section of selectedConfig.sections) if (!(section.id in sections)) sections[section.id] = '';
-  res.json({ specialty: specialtyConfig.key, sections, provider });
+  res.json({ specialty: specialtyConfig.key, sections, sourceData: buildSourceData(patientData, selectedConfig), provider });
 }));
 
 apiRouter.post('/patients/:dfn/draft/:sectionId/regenerate', wrap(async (req, res) => {
@@ -67,7 +68,7 @@ apiRouter.post('/patients/:dfn/draft/:sectionId/regenerate', wrap(async (req, re
   const patientData = await fetchPatient(req.params.dfn, req.body?.episodeId, { includeNoteDetails: true });
   await addCustomEndpointData(patientData, [section], req.params.dfn);
   const { text, provider } = await regenerateSection(req.params.sectionId, patientData, specialtyConfig, req.body?.currentDraft ?? {});
-  res.json({ text, provider });
+  res.json({ text, sourceData: buildSourceData(patientData, { ...specialtyConfig, sections: [section] }), provider });
 }));
 
 apiRouter.post('/patients/:dfn/summary/approve', wrap(async (req, res) => {

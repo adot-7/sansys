@@ -79,6 +79,7 @@ export default function App() {
   const [sectionOrder, setSectionOrder] = useState([]);
   const [sectionMeta, setSectionMeta] = useState({}); // id -> { source, manualEntry } when provided
   const [drafts, setDrafts] = useState({}); // id -> AI text
+  const [draftSourceData, setDraftSourceData] = useState({}); // exact source snapshot sent to the LLM
   const [edits, setEdits] = useState({}); // id -> doctor text ("" = untouched)
   const [draftLoading, setDraftLoading] = useState(false);
   const [draftError, setDraftError] = useState('');
@@ -138,6 +139,7 @@ export default function App() {
     setDraftError('');
     setDraftLoading(false);
     setDrafts({});
+    setDraftSourceData({});
     setEdits({});
     setSectionOrder([]);
     setSectionMeta({});
@@ -185,6 +187,7 @@ export default function App() {
         setSelectedSectionIds(ids);
         setSectionOrder(ids);
         setDrafts({});
+        setDraftSourceData({});
         setEdits(existing.sections);
         setActiveSection(ids[0] || '');
         setDraftLoading(false);
@@ -198,6 +201,7 @@ export default function App() {
         const ids = Object.keys(d.sections || {});
         setSectionOrder(ids);
         setDrafts(d.sections || {});
+        setDraftSourceData(d.sourceData || {});
         setEdits({});
         setActiveSection(ids[0] || '');
         setDraftLoading(false);
@@ -294,6 +298,7 @@ export default function App() {
         const res = await regenerateSection(dfnInput, sectionId, specialty, currentDraft, undefined, episodeId);
         // Replace ONLY this section's draft. Never touch edits elsewhere.
         setDrafts((d) => ({ ...d, [sectionId]: res.text }));
+        if (res.sourceData) setDraftSourceData((data) => ({ ...data, ...res.sourceData }));
         setRegenState((s) => ({ ...s, [sectionId]: { loading: false, error: '' } }));
       } catch (err) {
         setRegenState((s) => ({
@@ -348,7 +353,12 @@ export default function App() {
   const activeConfig = specialtyConfig?.sections.find((section) => section.id === activeSection);
   const activeSources = activeConfig?.sources || (activeConfig?.source ? [activeConfig.source] : []);
   const sourceData = activeSources.length
-    ? activeSources.reduce((data, source) => ({ ...data, [source]: patient?.[source] ?? null }), {})
+    ? activeSources.reduce((data, source) => ({
+        ...data,
+        [source]: Object.prototype.hasOwnProperty.call(draftSourceData, source)
+          ? draftSourceData[source]
+          : patient?.[source] ?? null,
+      }), {})
     : null;
 
   return (
@@ -420,7 +430,7 @@ export default function App() {
                   readOnly={readOnly}
                 />
                 <details className="source-data-panel">
-                  <summary>Source data used for this section (before AI)</summary>
+                  <summary>Source data sent to AI (before draft)</summary>
                   {activeSources.length ? (
                     <pre className="source-data-pre">{JSON.stringify(sourceData ?? null, null, 2)}</pre>
                   ) : (

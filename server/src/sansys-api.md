@@ -1,7 +1,7 @@
 # Sansys test API — actual endpoint shapes
 
 This is the reference for the **external** Sansys test API (`SANSYS_BASE_URL`,
-default `http://182.70.249.137:3030`). It is read by exactly one module:
+default `http://182.70.249.137:5050`). It is read by exactly one module:
 `server/src/dataAccess.js`. When the API changes, update **this file first**,
 then the field mappers in `dataAccess.js` and the test fixture in
 `server/test/fixtures/patient.js`. The normalized internal contract (what the
@@ -35,9 +35,9 @@ payloads directly.
 | Response wrapper | Lists were expected directly or with consistent nesting | Most responses are `{ success, data: { <list>: [...] } }` | `listOf()` accepts both direct and nested lists |
 | Patient identity | One patient identifier was expected everywhere | Endpoints mix `dfn`, `patientIen`, `visit_id`, `admissionId`, and `admissionIen` | The adapter uses the endpoint-specific identifier; they are not interchangeable |
 | Demographics | Normal names such as `firstName`, `lastName`, `uhid`, and `ipNo` | Raw names such as `lfname`, `llname`, `cpPID`, and `cpIPNo` | Mapped into the normalized demographics object |
-| Clinical notes | Full note content was expected | The list returns metadata; detail content and `patient_objects` are usually empty | Only note list metadata is surfaced |
+| Clinical notes | Full note content was expected | The list returns metadata; detail content and `patient_objects` may be empty | Draft requests load note details; normalized notes expose flattened content and non-medication `patientObjects` |
 | Vitals | A populated vitals list was expected on the first request | First response can contain empty `vitals` plus an `admissions` list | The adapter retries with the returned admission ID |
-| Vital measurements | Measurements may be a list of readings | Measurements are an object keyed by vital name; abnormality is indicated by `bgColor` | Keys are converted to normalized measurement records and empty values are dropped |
+| Vital measurements | Measurements may be a list of readings | Measurements are an object keyed by vital name; abnormality is indicated by `is_abnormal` (older payloads used `bgColor`) | Keys are converted to normalized measurement records and empty values are dropped |
 | Lab status | Status was expected as a string | Lab status is an object such as `{ name: "COMPLETED" }` | The nested status name is extracted |
 | Radiology status | Status was expected as an object | Radiology status is a string | The string is retained |
 | Allergies | Allergies were expected under a nested list property | `data` is the array itself and `status` is a top-level sibling | Both the status and item array are normalized |
@@ -346,7 +346,9 @@ Allergies currently have no episode parameter and remain patient-level data.
         "start_date": "2026-08-02",
         "stop_date": "",
         "status": "ACTIVE",           // "ACTIVE" | "COMPLETED" | "DISCONTINUED" | ...
-        "schedule_type": "Weekly"     // "Weekly" | "Nightly" | "PRN" | "TDS" | "OD" | ...
+        "schedule_type": "Weekly",    // coded schedule type
+        "schedule": "WEEKLY",          // display schedule when supplied
+        "service": "Inpt. Meds"
       }
     ]
   }

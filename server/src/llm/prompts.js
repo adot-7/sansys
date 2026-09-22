@@ -7,6 +7,7 @@ const ANTI_FABRICATION_RULES = [
   'If the data for a section is thin or partial, state plainly what the data shows (e.g. "Only vitals are recorded; no physical examination findings are available."). Do not fill gaps with plausible-sounding content.',
   'Use the exact clinical wording recorded in the data for diagnoses, allergies, and medication names; do not reclassify or add qualifiers that are not recorded.',
   'Medication facts belong in medication sections. If a note mentions a medication, use the normalized medications data for medication sections and do not duplicate medication lists in narrative sections.',
+  'For advice and follow-up sections, provide a concise draft tied to the recorded diagnoses or explicit note instructions. Do not invent an appointment interval, test, dose, restriction, or treatment change.',
   'For sections built from proxy or indirect data, write the useful clinical synthesis first. If a caveat is needed, add at most one short sentence at the end stating that the doctor should verify it. Never use a generic disclaimer as the section content or lead with it.',
   'Output STRICT JSON only: an object keyed by section id, each value a single plain-text string (the full text for that section). Simple hyphen-prefixed lines are allowed for lists; do not use headings, code fences, commentary, or keys beyond the requested section ids.',
 ].join('\n');
@@ -51,12 +52,17 @@ function sourceValue(source, patientData) {
     : patientData[source] ?? null;
 }
 
+export function buildSourceData(patientData, specialtyConfig) {
+  const sections = specialtyConfig.sections.filter((s) => s.source !== null || Array.isArray(s.sources));
+  const sourceNames = [...new Set(sections.flatMap((s) => s.sources || [s.source]).filter(Boolean))];
+  return Object.fromEntries(sourceNames.map((source) => [source, sourceValue(source, patientData)]));
+}
+
 // Full-draft request: one JSON object keyed by section id. Only sections with
 // a non-null `source` are included; sourceless sections never reach the model.
 export function buildDraftUserPrompt(patientData, specialtyConfig) {
   const sections = specialtyConfig.sections.filter((s) => s.source !== null || Array.isArray(s.sources));
-  const sourceNames = [...new Set(sections.flatMap((s) => s.sources || [s.source]).filter(Boolean))];
-  const sourceData = Object.fromEntries(sourceNames.map((source) => [source, sourceValue(source, patientData)]));
+  const sourceData = buildSourceData(patientData, specialtyConfig);
   const sectionSpecs = sections.map((s) => ({
     id: s.id,
     title: s.title,
