@@ -182,13 +182,38 @@ test('medication formatting exposes schedule and dates without status', () => {
   const noteText = formatSectionText('current-medication', '', {
     activeMedications: [{ medication: 'Note Tablet', schedule: 'NOW', route: 'ORAL', needsVerification: true, startDate: '', stopDate: '' }],
   });
-  assert.match(noteText, /source: clinical note; verify order/);
+  assert.match(noteText, /route: ORAL/);
+  assert.doesNotMatch(noteText, /source: clinical note; verify order/);
+
+  const grouped = formatSectionText('medications-during-stay', '', {
+    medications: [
+      { medication: 'Duplicate Tablet', schedule: 'OD', scheduleType: 'R', startDate: '2026-08-01', stopDate: '', status: 'ACTIVE' },
+      { medication: 'Duplicate Tablet', schedule: 'OD', scheduleType: 'R', startDate: '2026-08-01', stopDate: '', status: 'ACTIVE' },
+    ],
+  });
+  assert.equal(grouped, '- Duplicate Tablet; schedule: OD (type: R); start: 2026-08-01; stop: ongoing; status: ACTIVE');
 });
 
 test('empty advice sections receive concise diagnosis-grounded drafts', () => {
   const patient = { diagnoses: [{ diagnosis: 'Recorded diagnosis', isPrimary: true }] };
   assert.match(formatSectionText('advice', '', patient), /Recorded diagnosis/);
-  assert.match(formatSectionText('follow-up-advice', '', patient), /Recorded diagnosis/);
+  assert.equal(formatSectionText('follow-up-advice', 'Arrange review for the diagnosis.', patient), '');
+
+  const withInstruction = {
+    ...patient,
+    notes: [{ content: ['Follow up in the oncology clinic after discharge.'] }],
+  };
+  assert.equal(
+    formatSectionText('follow-up-advice', 'Follow up in the oncology clinic after discharge.', withInstruction),
+    'Follow up in the oncology clinic after discharge.',
+  );
+  assert.equal(
+    formatSectionText('follow-up-advice', 'Review the diagnosis at follow-up.', {
+      ...patient,
+      notes: [{ content: ['Progress reviewed; no follow-up required.'] }],
+    }),
+    '',
+  );
 });
 
 test('model-extracted note facts require valid note provenance before sectioning', () => {
@@ -256,6 +281,7 @@ for (const spec of listSpecialties()) {
     for (const s of cfg.sections) {
       assert.ok(s.id in sections, `missing section ${s.id}`);
       if (s.source === null) assert.equal(sections[s.id], '', `${s.id} must be empty`);
+      else if (s.id === 'follow-up-advice') assert.equal(sections[s.id], '', `${s.id} must stay empty without note instructions`);
       else if (!s.manualEntry) assert.ok(typeof sections[s.id] === 'string' && sections[s.id].length > 0, `${s.id} should have text`);
     }
   });

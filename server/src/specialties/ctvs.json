@@ -47,7 +47,7 @@
       "id": "current-medication",
       "title": "Current Medication",
       "source": "activeMedications",
-      "promptHint": "List active medications using medication name, recorded schedule, start date, stop date, and route when recorded. Reconcile active orders with explicit note-recorded medications; note-only facts are provisional and require doctor verification. Use one medication per line, note anticoagulants/antiplatelets where recorded, omit status, and do not invent dose or route.",
+      "promptHint": "List active medications using medication name, recorded schedule, start date, stop date, and route when recorded. Group repeated orders for the same medication and route into one compact line, combining distinct schedules or dates when needed. Reconcile active orders with explicit note-recorded medications; note-only facts are provisional and require doctor verification in the source panel. Note anticoagulants/antiplatelets where recorded, omit status, and do not invent dose or route.",
       "requiredManual": false,
       "manualEntry": false
     },
@@ -120,7 +120,7 @@
       "id": "medications-during-stay",
       "title": "Medications During Stay",
       "source": "medications",
-      "promptHint": "List medication facts recorded during this episode, including explicit medications in clinical notes when no order exists. Use one line per medication with medication name, recorded schedule, start date, stop date, and route. Include completed or discontinued perioperative orders when recorded. Note-only facts require doctor verification; omit raw JSON.",
+      "promptHint": "List medication facts recorded during this episode, including explicit medications in clinical notes when no order exists. Group repeated orders for the same medication and route into one compact line, combining distinct schedules, dates, or statuses when needed. Include completed or discontinued perioperative orders when recorded. Note-only facts require doctor verification in the source panel; omit raw JSON.",
       "requiredManual": false,
       "manualEntry": false
     },
@@ -129,7 +129,7 @@
       "title": "Medications on Discharge",
       "source": "dischargeMedications",
       "sources": ["dischargeMedications", "diagnoses"],
-      "promptHint": "Draft a concise medication-on-discharge list using active discharge-suitable orders plus explicit active oral/topical medications recorded in notes. Exclude injections, IV/infusion/chemotherapy, inpatient-only supplies, and any medication not present in the reconciled facts. Note-only medications must remain visibly provisional for doctor verification. Use medication name, schedule, start date, and stop date; omit status and do not invent replacements.",
+      "promptHint": "Draft a concise medication-on-discharge list using active discharge-suitable orders plus explicit active oral/topical medications recorded in notes. Group repeated orders for the same medication and route into one compact line. Exclude injections, IV/infusion/chemotherapy, inpatient-only supplies, and any medication not present in the reconciled facts. Note-only medications require doctor verification in the source panel. Use medication name, schedule, start date, and stop date; omit status and do not invent replacements.",
       "requiredManual": false,
       "manualEntry": false
     },
@@ -155,7 +155,7 @@
       "title": "Follow Up Advice",
       "source": "diagnoses",
       "sources": ["diagnoses", "notes"],
-      "promptHint": "Draft brief surgical follow-up advice grounded primarily in the recorded diagnoses and any explicit follow-up instructions in notes. Do not invent a clinic, interval, test, or treatment change; keep it useful and for doctor review.",
+      "promptHint": "Draft surgical follow-up advice only when the notes contain an explicit follow-up instruction. Use the recorded wording and do not invent a clinic, interval, test, or treatment change. If no explicit follow-up instruction is recorded, return an empty string.",
       "requiredManual": false,
       "manualEntry": false
     }

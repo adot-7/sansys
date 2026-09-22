@@ -76,25 +76,71 @@ function formatAllergies(allergies) {
   ].filter(Boolean).join('; '));
 }
 
-function formatMedications(medications, emptyText) {
-  return listText(medications || [], emptyText, (item) => [
+function formatMedications(medications, emptyText, { includeStatus = false } = {}) {
+  const groups = groupMedications(medications);
+  return listText(groups, emptyText, (item) => [
     clean(item.medication),
-    formatMedicationSchedule(item),
-    item.route ? `route: ${clean(item.route)}` : '',
-    `start: ${clean(item.startDate) || 'not recorded'}`,
-    `stop: ${clean(item.stopDate) || 'ongoing'}`,
-    item.needsVerification ? 'source: clinical note; verify order' : '',
+    formatMedicationSchedules(item.schedules),
+    item.routes.length ? `route: ${item.routes.join(', ')}` : '',
+    formatMedicationDates('start', item.starts),
+    formatMedicationDates('stop', item.stops),
+    includeStatus && item.statuses.length ? formatMedicationStatuses(item.statuses) : '',
   ].filter(Boolean).join('; '));
+}
+
+function groupMedications(medications) {
+  const groups = new Map();
+  for (const medication of Array.isArray(medications) ? medications : []) {
+    const name = clean(medication.medication);
+    if (!name) continue;
+    const key = `${name.toLocaleLowerCase()}|${clean(medication.route).toLocaleLowerCase()}`;
+    const group = groups.get(key) || {
+      medication: name,
+      schedules: [],
+      routes: [],
+      starts: [],
+      stops: [],
+      statuses: [],
+    };
+    const schedule = formatMedicationSchedule(medication);
+    if (schedule && !group.schedules.includes(schedule)) group.schedules.push(schedule);
+    const route = clean(medication.route);
+    if (route && !group.routes.includes(route)) group.routes.push(route);
+    const start = clean(medication.startDate);
+    if (start && !group.starts.includes(start)) group.starts.push(start);
+    const stop = clean(medication.stopDate) || 'ongoing';
+    if (!group.stops.includes(stop)) group.stops.push(stop);
+    const statuses = Array.isArray(medication.statuses) ? medication.statuses : [medication.statuses];
+    for (const status of [medication.status, ...statuses].map(clean).filter(Boolean)) {
+      if (!group.statuses.includes(status)) group.statuses.push(status);
+    }
+    groups.set(key, group);
+  }
+  return [...groups.values()];
+}
+
+function formatMedicationSchedules(schedules) {
+  if (!schedules.length) return 'schedule: not recorded';
+  return `${schedules.length > 1 ? 'schedules' : 'schedule'}: ${schedules.join(', ')}`;
+}
+
+function formatMedicationDates(label, dates) {
+  if (!dates.length) return `${label}: not recorded`;
+  return `${dates.length > 1 ? `${label}s` : label}: ${dates.join(', ')}`;
+}
+
+function formatMedicationStatuses(statuses) {
+  return `${statuses.length > 1 ? 'statuses' : 'status'}: ${statuses.join(', ')}`;
 }
 
 function formatMedicationSchedule(item) {
   const schedule = clean(item.schedule);
   const scheduleType = clean(item.scheduleType);
-  if (!schedule && !scheduleType) return 'schedule: not recorded';
+  if (!schedule && !scheduleType) return 'not recorded';
   if (!schedule || !scheduleType || schedule.toLocaleLowerCase() === scheduleType.toLocaleLowerCase()) {
-    return `schedule: ${schedule || scheduleType}`;
+    return schedule || scheduleType;
   }
-  return `schedule: ${schedule} (type: ${scheduleType})`;
+  return `${schedule} (type: ${scheduleType})`;
 }
 
 function normalizeNarrative(text) {
@@ -116,11 +162,13 @@ function fallbackAdvice(patientData) {
     : '- No diagnosis-based advice can be drafted from the recorded data; doctor to complete.';
 }
 
-function fallbackFollowUp(patientData) {
-  const diagnoses = diagnosisLabels(patientData);
-  return diagnoses.length
-    ? `- Arrange treating-specialty review for the recorded diagnosis (${diagnoses.join('; ')}); the doctor should set the interval, tests, and treatment plan.`
-    : '- No diagnosis-based follow-up draft can be generated from the recorded data; doctor to complete.';
+function hasExplicitFollowUp(patientData) {
+  const noteLines = (patientData?.notes || []).flatMap((note) => [
+    ...(Array.isArray(note.content) ? note.content : [note.content].filter(Boolean)),
+    JSON.stringify(note.patientObjects || {}),
+  ]);
+  const explicitInstruction = /(?:follow[\s_-]?up\s+(?:in|after|with|at|on|for|as needed)|return\s+(?:in|after|to|for)|revisit|re-?evaluate|come back\s+(?:in|after|to|for)|(?:schedule|book|arrange)\s+(?:a\s+)?(?:follow[\s_-]?up|review|appointment)|appointment\s+(?:in|on|at|with|scheduled)|review\s+(?:in|after|with|at|on|as needed)|see\s+(?:the\s+)?(?:clinic|doctor|specialist)|(?:clinic|outpatient|OPD)\s+(?:follow|review|appointment|visit))/i;
+  return noteLines.some((line) => explicitInstruction.test(String(line || '')));
 }
 
 export function formatSectionText(sectionId, text, patientData) {
@@ -136,7 +184,7 @@ export function formatSectionText(sectionId, text, patientData) {
     case 'current-medication':
       return formatMedications(patientData?.activeMedications, 'No active medication order is recorded for this episode.');
     case 'medications-during-stay':
-      return formatMedications(patientData?.medications, 'No medication order is recorded for this episode.');
+      return formatMedications(patientData?.medications, 'No medication order is recorded for this episode.', { includeStatus: true });
     case 'medications-on-discharge':
       return formatMedications(patientData?.dischargeMedications, 'No discharge-suitable active medication order is recorded for this episode.');
     case 'history-present-illness':
@@ -147,7 +195,7 @@ export function formatSectionText(sectionId, text, patientData) {
     case 'advice':
       return normalizeNarrative(text) || fallbackAdvice(patientData);
     case 'follow-up-advice':
-      return normalizeNarrative(text) || fallbackFollowUp(patientData);
+      return hasExplicitFollowUp(patientData) ? normalizeNarrative(text) : '';
     default:
       return normalizeGeneratedText(text);
   }

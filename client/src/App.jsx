@@ -441,7 +441,10 @@ export default function App() {
                   readOnly={readOnly}
                 />
                 <details className="source-data-panel">
-                  <summary>Reconciled source data used for this draft</summary>
+                  <summary>
+                    Reconciled source data used for this draft
+                    {sourceNeedsVerification && <span className="source-review-badge">Review note-sourced facts</span>}
+                  </summary>
                   {activeSources.length ? (
                     <pre className="source-data-pre">{JSON.stringify(sourceData ?? null, null, 2)}</pre>
                   ) : (

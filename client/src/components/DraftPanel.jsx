@@ -54,7 +54,7 @@ export default function DraftPanel({
         <div className="panel-body draft-text">
           {sourceNeedsVerification && (
             <div className="source-verification-note">
-              Includes facts recorded in clinical notes. Verify the source record before approval.
+              Some facts came from clinical notes. Review the Source data panel before approval.
             </div>
           )}
           <pre className="draft-pre">{text}</pre>

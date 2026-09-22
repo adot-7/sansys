@@ -448,6 +448,17 @@ textarea {
   text-transform: uppercase;
 }
 
+.source-review-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 5px;
+  border: 1px solid #d8c58c;
+  background: #fff9df;
+  color: #665522;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+}
+
 .source-data-pre {
   max-height: 260px;
   margin: 0;
