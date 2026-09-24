@@ -142,6 +142,15 @@ test('patient shell is available before full clinical data and note details', as
   assert.equal(clinicalNoteDetailCalls, 0);
 });
 
+test('patient endpoint can explicitly include clinical note details for longitudinal review', async () => {
+  const before = clinicalNoteDetailCalls;
+  const res = await GET(`/api/patients/${DFN}?episodeId=note-details-review&includeNoteDetails=true`);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.notes.length, 4);
+  assert.ok(clinicalNoteDetailCalls > before);
+  assert.ok(res.body.notes.every((note) => note.provenance?.[0]?.sourceType === 'clinical-note'));
+});
+
 test('complaint prompt groups repeated records by type and name', () => {
   const prompt = buildDraftUserPrompt(
     {

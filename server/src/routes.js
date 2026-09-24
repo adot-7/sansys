@@ -27,7 +27,9 @@ apiRouter.get('/diag/sansys', wrap(async (req, res) => {
 }));
 
 apiRouter.get('/patients/:dfn', wrap(async (req, res) => {
-  res.json(await fetchPatient(req.params.dfn, req.query.episodeId, { includeNoteDetails: false }));
+  res.json(await fetchPatient(req.params.dfn, req.query.episodeId, {
+    includeNoteDetails: req.query.includeNoteDetails === 'true',
+  }));
 }));
 
 apiRouter.get('/patients/:dfn/shell', wrap(async (req, res) => {

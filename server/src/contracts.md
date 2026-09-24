@@ -77,7 +77,8 @@ when a patient's specialty has no config.
 
 ## REST API (all JSON)
 
-- `GET  /api/patients/:dfn?episodeId=1-9013` → normalized patient object for the selected IP episode, including `episodes` and `episodeId`
+- `GET  /api/patients/:dfn?episodeId=1-9013` → normalized patient object for the selected IP episode, including `episodes` and `episodeId`; note detail is deferred by default
+- `GET  /api/patients/:dfn?episodeId=1-9013&includeNoteDetails=true` → same patient object with clinical-note detail/content loaded for longitudinal review
 - `GET  /api/patients/:dfn/shell?episodeId=1-9013` → fast shell with demographics, allergies, `episodes`, and `episodeId`; clinical collections are empty until the full patient request completes
 - `GET  /api/specialties` → `{ specialties: [{ key, label, sectionCount }] }`
 - `POST /api/patients/:dfn/draft` body `{ specialty, episodeId, sectionIds }` → `{ specialty, sections: { id: text }, sourceData, sourceDataBeforeReconciliation, provider }`. `sourceData` is the reconciled source snapshot used for the final draft; `sourceDataBeforeReconciliation` records the snapshot supplied before model-extracted note facts were merged.
